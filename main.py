@@ -1,5 +1,5 @@
 from src.spde import *
-from src.linear_solvers import GalerkinSolver
+from src.linear_solvers import GalerkinSolver, SpectralSolver
 from src.noises import WhiteNoise
 from mpl_toolkits import mplot3d
 
@@ -9,7 +9,7 @@ if __name__ == "__main__":
     points = 20
     steps = 100
     tmax = 5
-    samples = 64
+    samples = 16
 
     sigma = sqrt(0.75)
     k = -1
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     spde = SPDE(1, linmult_arnold, noise, points, f, g)
     #spde = SPDE(1, lambda a, t, x, w: sigma*w(t, x), noise, points, f, g)
 
-    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
+    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver)
     ensemble_solver = EnsembleSolver(solver, samples)
     ensemble_solver.solve()
     mean = ensemble_solver.mean
@@ -66,11 +66,11 @@ if __name__ == "__main__":
     ax2.legend()
 
     fig3, ax3 = vis2.steady_state('o', label="Numerical solution")
-    ax3.set_ylabel(r"$\langle\phi\rangle^2$")
+    ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.plot(ts, 
         (f + sigma**2/(2*k+sigma**2))*np.exp((2*k + sigma**2)*ts) - sigma**2/(2*k + sigma**2), \
-            label="Analytical, $B = \sigma\sqrt{1 + \phi^2}")
+            label="Analytical, $B = \sigma\sqrt{1 + \phi^2}$")
     ax3.plot(xs, res.sol(xs)[0]**2, label="Scipy solution")
     ax3.legend()
 

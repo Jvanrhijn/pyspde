@@ -4,6 +4,7 @@ from math import sin, cos, sqrt
 import copy
 
 import numpy as np
+from scipy.fftpack import dst, idst, dct, idct
 from scipy.integrate import quad
 from scipy.linalg import expm
 import matplotlib.pyplot as plt
@@ -105,3 +106,204 @@ class GalerkinSolver(LinearSolver):
     @staticmethod
     def k(n):
         return (n - 0.5)*np.pi
+
+
+class SpectralSolver(LinearSolver):
+
+    def __init__(self, spde, dt):
+        self._spde = spde
+        self._dt = dt
+        self._transform = Transform([1, -1], spde.left, spde.right, spde.points)
+        self._d = self._transform.derivative_matrix
+        self._d_inv = np.linalg.inv(self._d)
+        self._propagator = expm(-self._d*dt)
+        self._xs = np.linspace(1/spde.points, 1, spde.points)
+
+    def propagate_step(self, u):
+        xs = self._xs
+        max_iters = 100
+        tolerance = 1e-10
+        transform = self._transform
+        v0 = transform.homogenize(u, xs)
+        v0hat = transform.fft(v0)
+        propagator = self._propagator
+        dim = self._spde.points
+
+        # Guess initial values for iterated parameters
+        theta = np.zeros(len(xs))
+        u_boundary = u[-1]
+        ut_boundary = 0
+
+        for it1 in range(max_iters):
+            theta_old = theta
+
+            # Compute homogenized function in Fourier space using IP
+            vhat = (np.eye(dim) - propagator) @ self._d_inv @ theta + propagator @ v0hat
+            # Compute time-derivative in Fourier space using the ODE for vhat
+            dvhat_dt = -self._d @ vhat + theta
+
+            # Transform back to real space
+            v = transform.ifft(vhat)
+            dvdt = transform.ifft(dvhat_dt)
+
+            u_boundary_old = u_boundary
+            u_boundary, ut_boundary = transform.boundary_iteration(
+                    xs, v, dvdt, u_boundary, ut_boundary)
+
+            # Compute new value for theta using new boundary values for u
+            theta = transform.fft(transform.theta(xs, u_boundary, ut_boundary))
+
+            # check convergence
+            if (residue := abs(u_boundary - u_boundary_old)) < tolerance:
+                break
+
+            if it1 == max_iters-1:
+                print("WARNING: outer loop max iters reached")
+
+        # returnsolution value at this time point
+        return transform.dehomogenize(v, xs, u_boundary)
+
+
+class Transform:
+    """
+    This class contains all logic required to perform an interaction picture
+    step. It contains code to transform the function to homogeneous boundaries,
+    to compute the inhomogeneous function $\theta$, and to compute
+    one fixed-point iteration of the boundary values.
+    """
+
+    def __init__(self, boundaries, f, g, points, gderiv=None):
+        """
+        Parameters
+        ----------
+        boundaries: list
+            List of boundary types. A '1' means Dirichlet, '-1' means Robin
+        f: float 
+            Fixed boundary value
+        g: float or function
+            Fixed boundary value if boundaries == [1, 1], or Robin
+            boundary function otherwise
+        """
+        self._boundaries = boundaries
+        self._f = f
+        self._g = g
+        if boundaries == [1, 1]:
+            self.fft = lambda s, **kwargs: dst(s, norm='ortho', type=1)
+            self.ifft = lambda s, **kwargs: idst(s, norm='ortho', type=1)
+        elif boundaries == [1, -1]:
+            self.fft = lambda s, **kwargs: dst(s, norm='ortho', type=3)
+            self.ifft = lambda s, **kwargs: idst(s, norm='ortho', type=3)
+            # finite difference approximation, can also improve by
+            # providing derivative directly
+            if not gderiv:
+                self._gderiv = lambda u: (g(u + 0.001) - g(u))/0.001
+            else:
+                self._gderiv = gderiv
+        elif boundaries == [-1, 1]:
+            # TODO: figure out why DCT doesn't work
+            self.fft = lambda s, **kwargs: dct(s, norm='ortho', type=1)
+            self.ifft = lambda s, **kwargs: idct(s, norm='ortho', type=1)
+            if not gderiv:
+                self._gderiv = lambda u: (g(u + 0.001) - g(u))/0.001
+            else:
+                self._gderiv = gderiv
+        offset = 0.5 if boundaries == [1, -1] else 0
+        self.derivative_matrix = np.diag(
+                ((np.arange(1, points+1) - offset)*np.pi)**2)
+
+    def homogenize(self, u, x):
+        """
+        Perform the transformation to a function with homogeneous boundary
+        conditions.
+
+        Parameters
+        ----------
+        u: np.ndarray
+            Function value at the lattice points
+        x: np.ndarray
+            Lattice values 
+        """
+        if self._boundaries == [1, -1]:
+            return u - self._f - x*self._g(u[-1])
+        elif self._boundaries == [-1, 1]:
+            return u - x*self._f - (x - 1)*self._g(u[0])
+        elif self._boundaries == [1, 1]:
+            return u - (1 - x)*self._f - x*self._g
+
+    def dehomogenize(self, v, x, u_boundary):
+        """
+        Transform back to a function with inhomogeneous boundaries
+        
+        Parameters
+        ----------
+        v: np.ndarray
+            Function values at lattice points
+        x: np.ndarray
+            Lattice points
+        u_boundary: float
+            Value of inhomogeneous function at the Robin boundary, if there
+            is one
+        """
+        if self._boundaries == [1, -1]:
+            return v + self._f + x*self._g(u_boundary)
+        elif self._boundaries == [-1, 1]:
+            return v + x*self._f + (x - 1)*self._g(u_boundary)
+        elif self._boundaries == [1, 1]:
+            return v + (1 - x)*self._f + x*self._g
+
+    def theta(self, x, boundary, boundary_deriv):
+        """
+        Computes inhomogeneous function theta, in the PDE: dv/dt = v'' + theta
+
+        Parameters
+        ----------
+        x: np.ndarray
+            Lattice points
+        boundary: float
+            Value of function u at boundary
+        boundary_deriv: float
+            Time derivative of function u at boundary
+        """
+        if self._boundaries == [1, -1]:
+            return -x*self._gderiv(boundary)*boundary_deriv
+        elif self._boundaries == [-1, 1]: 
+            return -(x - 1)*self._gderiv(boundary)*boundary_deriv
+        else:
+            return np.zeros(len(x))
+
+    def boundary_iteration(self, x, v, dvdt, boundary, boundary_deriv):
+        """
+        Perform a single fixed-point iteration of the boundary
+        values.
+
+        Parameters
+        ----------
+        x: np.ndarray
+            Lattice points
+        v: np.ndarray
+            Function value at lattice points
+        dvdt: np.ndarray
+            Derivative of v at lattice points
+        boundary: float
+            Previous boundary value of u
+        boundary_deriv: float
+            Previous derivative of boundary value
+        """
+        # Dirichlet - Robin
+        if self._boundaries == [1, -1]:
+            # Test: newton's algorithm for boundary
+            p = v[-1] + self._f
+            boundary = boundary \
+                - (p + self._g(boundary) - boundary)/(self._gderiv(boundary) - 1)
+            #boundary = v[-1] + self._f + x[-1]*self._g(boundary)
+            boundary_deriv = dvdt[-1] \
+                    + x[-1]*self._gderiv(boundary)*boundary_deriv
+        # Robin - Dirichlet
+        elif self._boundaries == [-1, 1]:
+            boundary = v[0] + x[0]*self._f + (x[0] - 1)*self._g(boundary)
+            boundary_deriv = dvdt[0] + \
+                    x[0]*self._f + (x[0] - 1)*self._gderiv(boundary)*boundary_deriv
+        else:
+            # If there are no Robin boundaries, zero these
+            boundary, boundary_deriv = 0, 0
+        return boundary, boundary_deriv
