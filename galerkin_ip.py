@@ -140,9 +140,8 @@ phi = np.zeros((dim, dim))
 phi_right = np.array([basis[i](xs[-1]) for i in range(dim)])
 
 
-def G(u):
-    return g(f + np.dot(u, phi_right))*phi_right
-
+def G(u): return g(f + np.dot(u, phi_right))*phi_right
+   
 
 # build a manually
 #np.fill_diagonal(a, 0.5)
@@ -223,6 +222,9 @@ for i, t in tqdm.tqdm(enumerate(ts[1:]), total=len(ts)-1):
     v0 = v
 
     v = newton_iterate(v, v0)
+
+    solution[i+1] = f + fem_to_sol @ v
+
     #for it in range(max_iters):
     #    v_old = v
     #    v = contract(v, v0, prop)
@@ -232,8 +234,7 @@ for i, t in tqdm.tqdm(enumerate(ts[1:]), total=len(ts)-1):
     #    v_old = v
     #    if it == max_iters - 1:
     #        print("WARNING: max iterations reached")
-    solution[i+1, :] = f + fem_to_sol @ v
-
+        
 TS, XS = np.meshgrid(ts, xs)
 
 fig = plt.figure()
