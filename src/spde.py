@@ -11,6 +11,8 @@ from scipy.linalg import expm
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 
+import cupy as cp
+
 try:
     import tqdm
 except ImportError:

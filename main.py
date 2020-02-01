@@ -2,16 +2,22 @@ from src.spde import *
 from src.linear_solvers import GalerkinSolver, SpectralSolver
 from src.noises import WhiteNoise
 from mpl_toolkits import mplot3d
+from examples.potentials import *
 
 
 if __name__ == "__main__":
+    pool = cp.cuda.MemoryPool()
+    cp.cuda.set_allocator(pool.malloc)
+    pinned = cp.cuda.PinnedMemoryPool()
+    cp.cuda.set_pinned_memory_allocator(pinned.malloc)
+
     coeff = 1
-    points = 10
+    points = 31
     steps = 150*150
     tmax = 5
-    samples = 800
+    samples = 10
 
-    sigma = 1
+    sigma = 0.25
     k = -1
 
     f = 1
@@ -25,13 +31,7 @@ if __name__ == "__main__":
     d1 = DerivativeOperator(1, 1/points, f, g)
     d2 = DerivativeOperator(2, 1/points, f, g)
 
-    linear = lambda a, t, w: -k**2 * a + sigma*w
-    geometric_brownian = lambda a, t, w: - d1(a)**2/a + a*sigma*w
-    linmult_arnold = lambda a, t, w: -d1(a)**2 * a/(1 + a**2) - (k - sigma**2)**2 * a / (1 + a**2) + sigma * np.sqrt(1 + a**2)*w
-    linmult_graham = lambda a, t, w: -d1(a)**2 * a/(1 + a**2) - ((k - sigma**2)**2 - sigma**4/4) * a / (1 + a**2) + sigma * np.sqrt(1 + a**2)*w
-    gaussian_arnold = lambda a, t, w: a*d1(a)**2 + sigma**4 / 4 * np.exp(-2*a**2) * (a**3 - 1.5*a) + sigma * np.exp(-a**2/2)*w
-
-    spde = SPDE(coeff, linmult_arnold, noise, points, f, g, right_deriv=gderiv)
+    spde = SPDE(coeff, linmult_arnold(points, k, sigma, f, g), noise, points, f, g, right_deriv=gderiv)
 
     solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
     ensemble_solver = EnsembleSolver(solver, samples, processes=4)
