@@ -9,15 +9,24 @@ from scipy.linalg import expm
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 
+try:
+    import tqdm
+except ImportError:
+    tqdm = lambda s, *args, **kwargs: s
+
 
 class SPDE:
 
-    def __init__(self, linear, da, noise, points, left, right):
+    def __init__(self, linear, da, noise, points, left, right, right_deriv=None):
         self.noise = noise
         self.linear = linear
         self.da = da
         self.left = left
         self.right = right
+        if right_deriv is not None:
+            self.right_deriv = right_deriv
+        else:
+            self.right_deriv = lambda u: (right(u + 0.001) - right(u))/0.001
         self.points = points
 
 
@@ -38,16 +47,23 @@ class TrajectorySolver:
 
     def solve(self):
         noise = self._spde.noise
-        midpoints_iters = 3
+        midpoints_iters = 4
         for i in range(self._steps):
             # propagate solution to t + dt/2
-            a0 = self._linear_solver.propagate_step(self._solution[i])
+            if self._spde.linear != 0:
+                a0 = self._linear_solver.propagate_step(self._solution[i])
+            else:
+                a0 = self._solution[i]
             a = a0 
             # perform midpoint iteration
-            for it in range(midpoints_iters):
-                a = a0 + 0.5*self._dt * self._spde.da(a, self._time + 0.5*self._dt, self._xs, noise)
+            w = noise(self._time + 0.5*self._dt)
+            for _ in range(midpoints_iters):
+                a = a0 + 0.5*self._dt * self._spde.da(a, self._time + 0.5*self._dt, w)
             # propagate solution to t + dt
-            self._solution[i+1] = self._linear_solver.propagate_step(2*a - a0)
+            if self._spde.linear != 0.0:
+                self._solution[i+1] = self._linear_solver.propagate_step(2*a - a0)
+            else:
+                self._solution[i+1] = 2*a - a0
             self._time += self._dt
 
     @property
@@ -67,14 +83,14 @@ class EnsembleSolver:
         self.square_sample_error = None
 
     def solve(self):
-        for ensemble in range(self._ensembles):
+        for ensemble in tqdm.tqdm(range(self._ensembles)):
             self._trajectory_solvers[ensemble].solve()
             trajectory = self._trajectory_solvers[ensemble].solution
             self._storage[ensemble] = trajectory
         self.mean = np.mean(self._storage, axis=0)
         self.square = np.mean(self._storage**2, axis=0)
-        self.sample_error = np.std(self._storage, axis=0)
-        self.square_sample_error = np.std(self._storage**2, axis=0)
+        self.sample_error = np.std(self._storage, axis=0)/sqrt(self._ensembles - 1)
+        self.square_sample_error = np.std(self._storage**2, axis=0)/sqrt(self._ensembles - 1)
 
 
 class Visualizer:
@@ -118,15 +134,24 @@ class DerivativeOperator:
         self._dx = dx
         self._left = left
         self._right = right
+        du = 0.001
+        self._right_deriv = lambda u: (right(u+du) - right(u-du))/(2*du)
 
     def __call__(self, u):
         # TODO Improve this
         dim = len(u)
         matrix = np.zeros((dim, dim))
-        matrix[:-1, :-1] = np.diag(np.ones(dim-2), k=1) - np.diag(np.ones(dim-2), k=-1)
-        matrix[0, :] = matrix[1, :]
-        matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
-        matrix[-2, -1] = 1
-        du = 1/(2*self._dx) * matrix @ u
+        if self._order == 1:
+            matrix[:-1, :-1] = np.diag(np.ones(dim-2), k=1) - np.diag(np.ones(dim-2), k=-1)
+            matrix[0, :] = matrix[1, :]
+            matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
+            matrix[-2, -1] = 1
+            du = 1/(2*self._dx) * matrix @ u
+        elif self._order == 2:
+            raise NotImplementedError("Second-order FD not yet implemented")
+            du = np.zeros(dim)
+            du[1:-1] = (u[2:] - 2*u[1:-1] + u[:-2])/self._dx**2
+            du[0] = du[1]
+            du[-1] = 2 * (self._right(u[-1])/self._dx - (u[-1] - u[-2])/self._dx**2)
         return du
 

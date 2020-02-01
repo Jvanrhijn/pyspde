@@ -24,7 +24,7 @@ class GalerkinSolver(LinearSolver):
         """Store data and precompute lots of stuff"""
         self._xs = np.linspace(1/spde.points, 1, spde.points)
         self._spde = spde
-        self._gderiv = lambda u: (spde.right(u + 0.001) - spde.right(u)) / 0.001
+        self._gderiv = spde.right_deriv
         # assume sine basis, we'll generalize later
         self._basis_spectral = [partial(self._basis_sine, n) for n in range(1, spde.points)]\
             + [lambda x: x]
@@ -115,8 +115,8 @@ class SpectralSolver(LinearSolver):
         self._dt = dt
         self._transform = Transform([1, -1], spde.left, spde.right, spde.points)
         self._d = self._transform.derivative_matrix
-        self._d_inv = np.linalg.inv(self._d)
-        self._propagator = expm(-self._d*dt)
+        self._d_inv = 1/self._d
+        self._propagator = np.exp(-spde.linear*self._d*dt)
         self._xs = np.linspace(1/spde.points, 1, spde.points)
 
     def propagate_step(self, u):
@@ -138,9 +138,9 @@ class SpectralSolver(LinearSolver):
             theta_old = theta
 
             # Compute homogenized function in Fourier space using IP
-            vhat = (np.eye(dim) - propagator) @ self._d_inv @ theta + propagator @ v0hat
+            vhat = (1 - propagator) * self._d_inv * theta + propagator * v0hat
             # Compute time-derivative in Fourier space using the ODE for vhat
-            dvhat_dt = -self._d @ vhat + theta
+            dvhat_dt = -self._d * vhat + theta
 
             # Transform back to real space
             v = transform.ifft(vhat)
@@ -167,7 +167,7 @@ class SpectralSolver(LinearSolver):
 class Transform:
     """
     This class contains all logic required to perform an interaction picture
-    step. It contains code to transform the function to homogeneous boundaries,
+    step. It contains code to trsform the function to homogeneous boundaries,
     to compute the inhomogeneous function $\theta$, and to compute
     one fixed-point iteration of the boundary values.
     """
@@ -208,8 +208,7 @@ class Transform:
             else:
                 self._gderiv = gderiv
         offset = 0.5 if boundaries == [1, -1] else 0
-        self.derivative_matrix = np.diag(
-                ((np.arange(1, points+1) - offset)*np.pi)**2)
+        self.derivative_matrix = ((np.arange(1, points+1) - offset)*np.pi)**2
 
     def homogenize(self, u, x):
         """

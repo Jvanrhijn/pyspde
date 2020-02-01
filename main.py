@@ -6,44 +6,47 @@ from mpl_toolkits import mplot3d
 
 if __name__ == "__main__":
     coeff = 1
-    points = 20
-    steps = 100
+    points = 10
+    steps = 150**2
     tmax = 5
-    samples = 16
+    samples = 100
 
-    sigma = sqrt(0.75)
+    sigma = 1
     k = -1
 
     f = 1
-    g = lambda u: (k - sigma**2)*u;
+    g = lambda u: k*u
+    gderiv = lambda u: k
     #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
 
     u0 = np.ones(points)
-    noise = WhiteNoise(sqrt(2), points)
+    noise = WhiteNoise(1, points)
 
     d1 = DerivativeOperator(1, 1/points, f, g)
+    d2 = DerivativeOperator(2, 1/points, f, g)
 
-    geometric_brownian = lambda a, t, x, w: -d1(a)**2/a + a*sigma*w(t, x)
-    linmult_arnold = lambda a, t, x, w: -d1(a)**2 * a/(1 + a**2) - (k - sigma**2)**2 * a / (1 + a**2) + sigma * np.sqrt(1 + a**2)*w(t, x)
-    linmult_graham = lambda a, t, x, w: -d1(a)**2 * a/(1 + a**2) - ((k - sigma**2)**2 - sigma**4/4) * a / (1 + a**2) + sigma * np.sqrt(1 + a**2)*w(t, x)
-    gaussian_arnold = lambda a, t, x, w: a*d1(a)**2 + sigma**4 / 4 * np.exp(-2*a**2) * (a**3 - 1.5*a) + sigma * np.exp(-a**2/2)*w(t, x)
+    linear = lambda a, t, w: -k**2 * a + sigma*w
+    geometric_brownian = lambda a, t, w: - d1(a)**2/a + a*sigma*w
+    linmult_arnold = lambda a, t, w: -d1(a)**2 * a/(1 + a**2) - (k - sigma**2)**2 * a / (1 + a**2) + sigma * np.sqrt(1 + a**2)*w
+    linmult_graham = lambda a, t, w: -d1(a)**2 * a/(1 + a**2) - ((k - sigma**2)**2 - sigma**4/4) * a / (1 + a**2) + sigma * np.sqrt(1 + a**2)*w
+    gaussian_arnold = lambda a, t, w: a*d1(a)**2 + sigma**4 / 4 * np.exp(-2*a**2) * (a**3 - 1.5*a) + sigma * np.exp(-a**2/2)*w
 
-    spde = SPDE(1, linmult_arnold, noise, points, f, g)
-    #spde = SPDE(1, lambda a, t, x, w: sigma*w(t, x), noise, points, f, g)
+    spde = SPDE(coeff, linmult_arnold, noise, points, f, g, right_deriv=gderiv)
 
-    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver)
+    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
     ensemble_solver = EnsembleSolver(solver, samples)
     ensemble_solver.solve()
     mean = ensemble_solver.mean
     square = ensemble_solver.square
 
+    err = np.sqrt(square - mean**2)
     vis = Visualizer(mean, (0, tmax), (0, 1), error=ensemble_solver.sample_error)
     vis2 = Visualizer(square, (0, tmax), (0, 1), error=ensemble_solver.square_sample_error)
 
-    fig, ax = vis.surface()
+    fig, ax = vis.surface(cstride=10*points, rstride=10)
     ts = vis.xaxis
 
-    fig2, ax2 = vis.steady_state('o', label="Numerical solution")
+    fig2, ax2 = vis.steady_state(label="Numerical solution", marker='o', linestyle='-.')
     ax2.set_ylabel(r"$\langle\phi\rangle$")
     ax2.set_xlabel("t")
     ax2.plot(ts, np.exp(k*ts), label="Analytical; $B = \sigma\sqrt{1 + \phi^2}$")
@@ -65,7 +68,7 @@ if __name__ == "__main__":
 
     ax2.legend()
 
-    fig3, ax3 = vis2.steady_state('o', label="Numerical solution")
+    fig3, ax3 = vis2.steady_state('o', label="Numerical solution", marker='o', linestyle='-.')
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.plot(ts, 

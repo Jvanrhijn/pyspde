@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
+from math import sqrt
 import copy
+
 import numpy as np
 from scipy.stats import norm
 
@@ -16,20 +18,19 @@ class WhiteNoise:
     def __init__(self, variance, dimension):
         self._variance = variance
         self._dimension = dimension
+        self._dx = 1/dimension
         self._value = np.zeros(dimension)
         self._time = 0.0
 
-    def __call__(self, t, xs):
+    def __call__(self, t):
         if t < self._time:
             raise ValueError("Can't compute white noise into the past")
         dt = t - self._time
-        # generate spatially delta-correlated white noise process
-        value_new = copy.deepcopy(self._value)
-        for j, x in enumerate(xs[1:]):
-            dx = x - xs[j]
-            value_new[j+1] = value_new[j] + norm.rvs(scale=self._variance*dx)\
-                * norm.rvs(scale=self._variance*dt)
-        self._value += value_new
+        # special case: if called at the same time point, return same value as previous
+        if dt == 0.0:
+            return self._value
+        # generate white noise process
+        self._value = norm.rvs(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
         self._time = t
         return self._value
 
