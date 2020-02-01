@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from functools import partial
 from math import sin, cos, sqrt
 import copy
+from multiprocessing import Process, Queue
+from datetime import datetime
 
 import numpy as np
 from scipy.integrate import quad
@@ -73,7 +75,7 @@ class TrajectorySolver:
 
 class EnsembleSolver:
 
-    def __init__(self, trajectory_solver, ensembles):
+    def __init__(self, trajectory_solver, ensembles, processes=1):
         self._trajectory_solvers = [copy.deepcopy(trajectory_solver) for _ in range(ensembles)]
         self._ensembles = ensembles
         self._storage = np.zeros((self._ensembles, *trajectory_solver.solution.shape))
@@ -81,16 +83,47 @@ class EnsembleSolver:
         self.square = None
         self.sample_error = None
         self.square_sample_error = None
+        self._processes = processes
 
     def solve(self):
-        for ensemble in tqdm.tqdm(range(self._ensembles)):
-            self._trajectory_solvers[ensemble].solve()
-            trajectory = self._trajectory_solvers[ensemble].solution
-            self._storage[ensemble] = trajectory
+        queue = Queue() 
+        # split the solver list into chunks
+        solver_chunks = list(self.chunks(self._trajectory_solvers, self._processes))
+        for thread, chunk in enumerate(solver_chunks):
+            p = Process(target=self.solve_trajectory, args=(queue, thread, chunk))
+            p.start()
+        start_index = 0
+        for chunk in solver_chunks:
+            # obtain individual trajectory results from queue
+            results = queue.get()
+            num_results = len(results)
+            # calculate range in internal trajectory storage
+            r = (start_index, start_index + num_results)
+            start_index = start_index + num_results
+            # store results
+            self._storage[r[0]:r[1]] = results
+    
+        # calculate some moments and errors
         self.mean = np.mean(self._storage, axis=0)
         self.square = np.mean(self._storage**2, axis=0)
         self.sample_error = np.std(self._storage, axis=0)/sqrt(self._ensembles - 1)
         self.square_sample_error = np.std(self._storage**2, axis=0)/sqrt(self._ensembles - 1)
+
+    @staticmethod
+    def solve_trajectory(queue, threadnr, solvers):
+        results = []
+        start_time = datetime.now()
+        for snr, solver in enumerate(solvers):
+            print(f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, time = {datetime.now() - start_time}")
+            solver.solve()
+            results.append(solver.solution)
+        queue.put(results)
+
+    @staticmethod
+    def chunks(l, n):
+        """Yield n number of striped chunks from l."""
+        for i in range(0, n):
+            yield l[i::n]
 
 
 class Visualizer:

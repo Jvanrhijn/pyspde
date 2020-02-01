@@ -7,16 +7,16 @@ from mpl_toolkits import mplot3d
 if __name__ == "__main__":
     coeff = 1
     points = 10
-    steps = 150**2
+    steps = 150*150
     tmax = 5
-    samples = 100
+    samples = 800
 
     sigma = 1
     k = -1
 
     f = 1
-    g = lambda u: k*u
-    gderiv = lambda u: k
+    g = lambda u: (k - sigma**2)*u
+    gderiv = lambda u: k - sigma**2
     #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
 
     u0 = np.ones(points)
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     spde = SPDE(coeff, linmult_arnold, noise, points, f, g, right_deriv=gderiv)
 
     solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
-    ensemble_solver = EnsembleSolver(solver, samples)
+    ensemble_solver = EnsembleSolver(solver, samples, processes=4)
     ensemble_solver.solve()
     mean = ensemble_solver.mean
     square = ensemble_solver.square
