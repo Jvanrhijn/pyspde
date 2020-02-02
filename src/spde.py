@@ -231,8 +231,6 @@ class DerivativeOperator:
         self._dx = dx
         self._left = left
         self._right = right
-        du = 0.001
-        self._right_deriv = lambda u: (right(u+du) - right(u-du))/(2*du)
 
     def __call__(self, u):
         # TODO Improve this
@@ -244,7 +242,7 @@ class DerivativeOperator:
             matrix[0, :] = matrix[1, :]
             matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
             matrix[-2, -1] = 1
-            du = 1/(2*self._dx) * matrix @ u
+            du = 1/(2*self._dx) * matrix @ u 
         elif self._order == 2:
             raise NotImplementedError("Second-order FD not yet implemented")
             du = np.zeros(dim)

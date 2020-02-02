@@ -9,24 +9,22 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 31
-    steps = 150
+    steps = 150**2
     tmax = 5
-    samples = 12
+    samples = 16
     processes = 4
 
     sigma = 0.25
     k = -1
 
     f = 1
-    def g(u): return (k - sigma**2)*u
-    def gderiv(u): return k - sigma**2
+    g = lambda u: (k - sigma**2)*u
+    gderiv = lambda u: k - sigma**2
     #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
+    gderiv = None
 
     u0 = np.ones(points)
     noise = WhiteNoise(2, points)
-
-    d1 = DerivativeOperator(1, 1/points, f, g)
-    d2 = DerivativeOperator(2, 1/points, f, g)
 
     spde = SPDE(coeff, geometric_brownian(points, k, sigma, f, g),
                 noise, points, f, g, right_deriv=gderiv)
@@ -72,6 +70,7 @@ if __name__ == "__main__":
 
     def du(t, u):
         return np.vstack((u[1], u[0] / (1 + u[0]**2)*(u[1]**2 + (k - sigma**2)**2)))
+        #return np.vstack((u[1], u[0]*u[1]**2 + sigma**2 / 4 * np.exp(-2*u[0]**2) * (u[0]**3 - 1.5*u[0])))
 
     def bc(ua, ub):
         return np.array([ua[0] - f, ub[1] - g(ub[0])])
