@@ -9,9 +9,9 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 31
-    steps = 150*150
+    steps = int(1e4)
     tmax = 5
-    samples = 160
+    samples = 64
     processes = 4
 
     sigma = 0.25
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     gderiv = None
 
     u0 = np.ones(points)
-    noise = WhiteNoise(2, points)
+    noise = WhiteNoise(1, points)
 
     #simple_sde = lambda a, t, w: -0.5*a*np.exp(-a**2) + 0.5*sigma*a*np.exp(-0.5*a**2)/sqrt(2)
     spde = SPDE(coeff, linmult_arnold(points, k, sigma, f, g),
@@ -70,8 +70,8 @@ if __name__ == "__main__":
     from scipy.integrate import solve_bvp
 
     def du(t, u):
-        return np.vstack((u[1], u[0] / (1 + u[0]**2)*(u[1]**2 + (k - sigma**2)**2)))
-        #return np.vstack((u[1], u[0]*u[1]**2 + sigma**2 / 4 * np.exp(-2*u[0]**2) * (u[0]**3 - 1.5*u[0])))
+        #return np.vstack((u[1], u[0] / (1 + u[0]**2)*(u[1]**2 + (k - sigma**2)**2)))
+        return np.vstack((u[1], u[0]*u[1]**2 + sigma**2 / 4 * np.exp(-2*u[0]**2) * (u[0]**3 - 1.5*u[0])))
 
     def bc(ua, ub):
         return np.array([ua[0] - f, ub[1] - g(ub[0])])

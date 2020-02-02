@@ -101,9 +101,10 @@ class TrajectorySolver:
 
 class EnsembleSolver:
 
-    def __init__(self, trajectory_solver, ensembles, processes=1, verbose=True, pbar=False):
+    def __init__(self, trajectory_solver, ensembles, processes=1, verbose=True, pbar=False, seed=None):
         self._verbose = verbose
         self._pbar = pbar
+        self._rng = random.Random(seed)
         if verbose and pbar:
             raise ValueError("EnsembleSolver can't output logging data and progress bar")
         self._trajectory_solvers = [copy.deepcopy(
@@ -169,7 +170,7 @@ class EnsembleSolver:
             solver_fine = copy.deepcopy(solver)
             solver_fine.steps = solver.steps * 2
             # generate seed
-            seed = random.randint(0, 2**32-1)
+            seed = self._rng.randint(0, 2**32-1)
             solver.seed = seed
             solver_fine.seed = seed
             # solve both the original and the fine trajectory
