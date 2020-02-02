@@ -33,12 +33,15 @@ class WhiteNoise:
             return self._value
         # generate white noise process
         if average:
-            dt *=0.5
-            value_half = self._rng.normal(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
-            value_whole = self._rng.normal(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
+            dt *= 0.5
+            value_half = self._rng.normal(scale=sqrt(
+                self._variance/(self._dx*dt)), size=self._dimension)
+            value_whole = self._rng.normal(scale=sqrt(
+                self._variance/(self._dx*dt)), size=self._dimension)
             self._value = 0.5 * (value_half + value_whole)
         else:
-            self._value = self._rng.normal(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
+            self._value = self._rng.normal(scale=sqrt(
+                self._variance/(self._dx*dt)), size=self._dimension)
         self._time = t
         return self._value
 
@@ -50,4 +53,3 @@ class WhiteNoise:
     def seed(self, seed):
         self._seed = seed
         self._rng = np.random.RandomState(seed=self._seed)
-

@@ -63,7 +63,6 @@ class TrajectorySolver:
         self._solution[0] = initial
         self._linear_solver = self._linsolve_type(self._spde, self._dt/2)
 
-
     def solve(self, average=False):
         noise = self._spde.noise
         midpoints_iters = 4
@@ -73,14 +72,16 @@ class TrajectorySolver:
                 a0 = self._linear_solver.propagate_step(self._solution[i])
             else:
                 a0 = self._solution[i]
-            a = a0 
+            a = a0
             # perform midpoint iteration
             w = noise(self._time + 0.5*self._dt, average=average)
             for _ in range(midpoints_iters):
-                a = a0 + 0.5*self._dt * self._spde.da(a, self._time + 0.5*self._dt, w)
+                a = a0 + 0.5*self._dt * \
+                    self._spde.da(a, self._time + 0.5*self._dt, w)
             # propagate solution to t + dt
             if self._spde.linear != 0.0:
-                self._solution[i+1] = self._linear_solver.propagate_step(2*a - a0)
+                self._solution[i +
+                               1] = self._linear_solver.propagate_step(2*a - a0)
             else:
                 self._solution[i+1] = 2*a - a0
             self._time += self._dt
@@ -101,9 +102,11 @@ class TrajectorySolver:
 class EnsembleSolver:
 
     def __init__(self, trajectory_solver, ensembles, processes=1):
-        self._trajectory_solvers = [copy.deepcopy(trajectory_solver) for _ in range(ensembles)]
+        self._trajectory_solvers = [copy.deepcopy(
+            trajectory_solver) for _ in range(ensembles)]
         self._ensembles = ensembles
-        self._storage = np.zeros((self._ensembles, *trajectory_solver.solution.shape))
+        self._storage = np.zeros(
+            (self._ensembles, *trajectory_solver.solution.shape))
         self.mean = None
         self.square = None
         self.sample_error = None
@@ -113,11 +116,13 @@ class EnsembleSolver:
         self._processes = processes
 
     def solve(self):
-        queue = Queue() 
+        queue = Queue()
         # split the solver list into chunks
-        solver_chunks = list(self.chunks(self._trajectory_solvers, self._processes))
+        solver_chunks = list(self.chunks(
+            self._trajectory_solvers, self._processes))
         for thread, chunk in enumerate(solver_chunks):
-            p = Process(target=self.solve_trajectory, args=(queue, thread, chunk))
+            p = Process(target=self.solve_trajectory,
+                        args=(queue, thread, chunk))
             p.start()
         start_index = 0
         for chunk in solver_chunks:
@@ -128,29 +133,33 @@ class EnsembleSolver:
             num_results = len(results)
             # calculate range in internal trajectory storage
             r = (start_index, start_index + num_results)
-            start_index = start_index + num_results
-            ## TODO: perform extrapolation to small step size limit
+            start_index += num_results
+            # perform extrapolation to small step size limit
             order = 1
             epsilon = 1 / (2**order - 1)
-            true_results = (1 + epsilon) * fine_results[:, ::2] - epsilon * results
+            true_results = (1 + epsilon) * \
+                fine_results[:, ::2] - epsilon * results
             # store results
             self._storage[r[0]:r[1]] = true_results
             self.step_error[r[0]:r[1]] = np.abs(fine_results[:, ::2] - results)
-    
+
         # calculate some moments and errors
         self.step_error = np.mean(self.step_error, axis=0)
         self.mean = np.mean(self._storage, axis=0)
         self.square_step_error = 2*self.mean*self.step_error + self.step_error**2
         self.square = np.mean(self._storage**2, axis=0)
-        self.sample_error = np.std(self._storage, axis=0)/sqrt(self._ensembles - 1)
-        self.square_sample_error = np.std(self._storage**2, axis=0)/sqrt(self._ensembles - 1)
+        self.sample_error = np.std(
+            self._storage, axis=0)/sqrt(self._ensembles - 1)
+        self.square_sample_error = np.std(
+            self._storage**2, axis=0)/sqrt(self._ensembles - 1)
 
     @staticmethod
     def solve_trajectory(queue, threadnr, solvers):
         results = []
         start_time = datetime.now()
         for snr, solver in enumerate(solvers):
-            print(f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, time = {datetime.now() - start_time}")
+            print(
+                f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, time = {datetime.now() - start_time}")
             # for time step error estimation, copy the solver with a finer
             # step size
             solver_fine = copy.deepcopy(solver)
@@ -160,8 +169,10 @@ class EnsembleSolver:
             solver.seed = seed
             solver_fine.seed = seed
             # solve both the original and the fine trajectory
+            # 'average' keyword telse the coarse solver to average
+            # two subsequent fine noise terms for consisteny
             solver.solve(average=True)
-            solver_fine.solve()
+            solver_fine.solve(average=False)
             results.append((solver.solution, solver_fine.solution))
         queue.put(results)
 
@@ -189,7 +200,8 @@ class Visualizer:
         xs, ts = np.meshgrid(self._xs, self._ts)
         fig = plt.figure()
         ax = fig.add_subplot(projection="3d")
-        ax.plot_surface(xs, ts, self._solution, *args, cmap="viridis", **kwargs)
+        ax.plot_surface(xs, ts, self._solution, *
+                        args, cmap="viridis", **kwargs)
         return fig, ax
 
     def steady_state(self, *args, **kwargs):
@@ -227,7 +239,8 @@ class DerivativeOperator:
         dim = len(u)
         matrix = np.zeros((dim, dim))
         if self._order == 1:
-            matrix[:-1, :-1] = np.diag(np.ones(dim-2), k=1) - np.diag(np.ones(dim-2), k=-1)
+            matrix[:-1, :-1] = np.diag(np.ones(dim-2),
+                                       k=1) - np.diag(np.ones(dim-2), k=-1)
             matrix[0, :] = matrix[1, :]
             matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
             matrix[-2, -1] = 1
@@ -237,6 +250,6 @@ class DerivativeOperator:
             du = np.zeros(dim)
             du[1:-1] = (u[2:] - 2*u[1:-1] + u[:-2])/self._dx**2
             du[0] = du[1]
-            du[-1] = 2 * (self._right(u[-1])/self._dx - (u[-1] - u[-2])/self._dx**2)
+            du[-1] = 2 * (self._right(u[-1])/self._dx -
+                          (u[-1] - u[-2])/self._dx**2)
         return du
-

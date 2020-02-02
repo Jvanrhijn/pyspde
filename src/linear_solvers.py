@@ -37,7 +37,8 @@ class GalerkinSolver(LinearSolver):
         self._a = np.zeros((dim, dim))
         self._b = np.zeros((dim, dim))
         phi = np.zeros((dim, dim))
-        self._phi_right = np.array([self._basis_spectral[i](self._xs[-1]) for i in range(dim)])
+        self._phi_right = np.array(
+            [self._basis_spectral[i](self._xs[-1]) for i in range(dim)])
 
         # build a manually
         ns = np.arange(0, spde.points, 1)
@@ -45,7 +46,7 @@ class GalerkinSolver(LinearSolver):
         np.fill_diagonal(self._a, 0.5)
         self._a[:-1, -1] = self._a[-1, :-1] = np.sin(k(ns[1:]))/k(ns[1:])**2
         self._a[-1, -1] = 1/3
-        
+
         # build b manually
         np.fill_diagonal(self._b, 0.5*k(ns[1:])**2)
         self._b[:-1, -1] = self._b[-1, :-1] = np.sin(k(ns[1:]))
@@ -65,7 +66,6 @@ class GalerkinSolver(LinearSolver):
         self._q = self._s @ self._phi_right
         self._qphi = np.outer(self._q, self._phi_right)
 
-
     def propagate_step(self, u):
         v = self._sol_to_fem @ (u - self._spde.left)
         v0 = v
@@ -76,11 +76,11 @@ class GalerkinSolver(LinearSolver):
         gprime = self._gderiv(self._spde.left + u @ self._phi_right)
         return -(np.eye(self._spde.points) + gprime * self._qphi / (1 - gprime * self._phi_right @ self._q))
 
-    def G(self, u): 
+    def G(self, u):
         return self._spde.right(self._spde.left + np.dot(u, self._phi_right))*self._phi_right
 
     def newton_iterate(self, x, v0, it_max=100, tolerance=1e-10):
-        func = lambda y: self._contract(y, v0) - y
+        def func(y): return self._contract(y, v0) - y
         for it in range(it_max):
             x_old = x
             x = x - self.inverse_jacobian(x) @ func(x)
@@ -113,7 +113,8 @@ class SpectralSolver(LinearSolver):
     def __init__(self, spde, dt):
         self._spde = spde
         self._dt = dt
-        self._transform = Transform([1, -1], spde.left, spde.right, spde.points)
+        self._transform = Transform(
+            [1, -1], spde.left, spde.right, spde.points)
         self._d = self._transform.derivative_matrix
         self._d_inv = 1/self._d
         self._propagator = np.exp(-spde.linear*self._d*dt)
@@ -148,13 +149,13 @@ class SpectralSolver(LinearSolver):
 
             u_boundary_old = u_boundary
             u_boundary, ut_boundary = transform.boundary_iteration(
-                    xs, v, dvdt, u_boundary, ut_boundary)
+                xs, v, dvdt, u_boundary, ut_boundary)
 
             # Compute new value for theta using new boundary values for u
             theta = transform.fft(transform.theta(xs, u_boundary, ut_boundary))
 
             # check convergence
-            if (residue := abs(u_boundary - u_boundary_old)) < tolerance:
+            if (residue:= abs(u_boundary - u_boundary_old)) < tolerance:
                 break
 
             if it1 == max_iters-1:
@@ -232,7 +233,7 @@ class Transform:
     def dehomogenize(self, v, x, u_boundary):
         """
         Transform back to a function with inhomogeneous boundaries
-        
+
         Parameters
         ----------
         v: np.ndarray
@@ -265,7 +266,7 @@ class Transform:
         """
         if self._boundaries == [1, -1]:
             return -x*self._gderiv(boundary)*boundary_deriv
-        elif self._boundaries == [-1, 1]: 
+        elif self._boundaries == [-1, 1]:
             return -(x - 1)*self._gderiv(boundary)*boundary_deriv
         else:
             return np.zeros(len(x))
@@ -293,15 +294,16 @@ class Transform:
             # Test: newton's algorithm for boundary
             p = v[-1] + self._f
             boundary = boundary \
-                - (p + self._g(boundary) - boundary)/(self._gderiv(boundary) - 1)
+                - (p + self._g(boundary) - boundary) / \
+                (self._gderiv(boundary) - 1)
             #boundary = v[-1] + self._f + x[-1]*self._g(boundary)
             boundary_deriv = dvdt[-1] \
-                    + x[-1]*self._gderiv(boundary)*boundary_deriv
+                + x[-1]*self._gderiv(boundary)*boundary_deriv
         # Robin - Dirichlet
         elif self._boundaries == [-1, 1]:
             boundary = v[0] + x[0]*self._f + (x[0] - 1)*self._g(boundary)
             boundary_deriv = dvdt[0] + \
-                    x[0]*self._f + (x[0] - 1)*self._gderiv(boundary)*boundary_deriv
+                x[0]*self._f + (x[0] - 1)*self._gderiv(boundary)*boundary_deriv
         else:
             # If there are no Robin boundaries, zero these
             boundary, boundary_deriv = 0, 0
