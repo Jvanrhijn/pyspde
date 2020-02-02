@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from functools import partial
 from math import sin, cos, sqrt
 import copy
+from warnings import Warning
 
 import numpy as np
 from scipy.fftpack import dst, idst, dct, idct
@@ -86,6 +87,8 @@ class GalerkinSolver(LinearSolver):
             x = x - self.inverse_jacobian(x) @ func(x)
             if np.linalg.norm(x - x_old) < tolerance:
                 break
+            if it == it_max-1:
+                raise Warning("maximum Newton iterations reached")
         return x
 
     def _contract(self, v, v0):
