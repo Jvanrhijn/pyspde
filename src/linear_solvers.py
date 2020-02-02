@@ -155,7 +155,7 @@ class SpectralSolver(LinearSolver):
             theta = transform.fft(transform.theta(xs, u_boundary, ut_boundary))
 
             # check convergence
-            if (residue:= abs(u_boundary - u_boundary_old)) < tolerance:
+            if abs(u_boundary - u_boundary_old) < tolerance:
                 break
 
             if it1 == max_iters-1:
