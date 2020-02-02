@@ -14,7 +14,7 @@ if __name__ == "__main__":
     samples = 10
     processes = 4
 
-    sigma = 0.1
+    sigma = 0.5
     k = -1
 
     f = 1
