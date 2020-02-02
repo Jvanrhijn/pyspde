@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 31
-    steps = 150*149
+    steps = 150
     tmax = 5
     samples = 12
     processes = 4
