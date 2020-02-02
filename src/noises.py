@@ -15,14 +15,16 @@ class Noise(ABC):
 
 class WhiteNoise:
 
-    def __init__(self, variance, dimension):
+    def __init__(self, variance, dimension, seed=None):
         self._variance = variance
         self._dimension = dimension
         self._dx = 1/dimension
         self._value = np.zeros(dimension)
         self._time = 0.0
+        self._seed = seed
+        self._rng = np.random.RandomState(seed=self._seed)
 
-    def __call__(self, t):
+    def __call__(self, t, average=False):
         if t < self._time:
             raise ValueError("Can't compute white noise into the past")
         dt = t - self._time
@@ -30,7 +32,22 @@ class WhiteNoise:
         if dt == 0.0:
             return self._value
         # generate white noise process
-        self._value = norm.rvs(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
+        if average:
+            dt *=0.5
+            value_half = self._rng.normal(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
+            value_whole = self._rng.normal(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
+            self._value = 0.5 * (value_half + value_whole)
+        else:
+            self._value = self._rng.normal(scale=sqrt(self._variance/(self._dx*dt)), size=self._dimension)
         self._time = t
         return self._value
+
+    @property
+    def seed(self):
+        return self._seed
+
+    @seed.setter
+    def seed(self, seed):
+        self._seed = seed
+        self._rng = np.random.RandomState(seed=self._seed)
 

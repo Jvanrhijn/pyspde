@@ -2,7 +2,7 @@ from src.spde import DerivativeOperator
 import numpy as np
 
 
-def linear(points, k, sigma):
+def linear(points, k, sigma, left, right):
     return lambda a, t, w: -k**2 * a + sigma*w
 
 
