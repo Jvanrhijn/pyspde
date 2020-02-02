@@ -23,4 +23,4 @@ def linmult_graham(points, k, sigma, left, right):
 
 def gaussian_arnold(points, k, sigma, left, right):
     d1 = DerivativeOperator(1, 1/points, left, right)
-    return lambda a, t, w: a*d1(a)**2 + sigma**4 / 4 * np.exp(-2*a**2) * (a**3 - 1.5*a) + sigma * np.exp(-a**2/2)*w
+    return lambda a, t, w: a*d1(a)**2 + sigma**4 * np.exp(-2*a**2) * (a**3 - 1.5*a) + sigma * np.exp(-a**2/2)*w

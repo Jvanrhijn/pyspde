@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 
 try:
-    import tqdm
+    from tqdm import tqdm
 except ImportError:
     tqdm = lambda s, *args, **kwargs: s
 
@@ -101,7 +101,11 @@ class TrajectorySolver:
 
 class EnsembleSolver:
 
-    def __init__(self, trajectory_solver, ensembles, processes=1):
+    def __init__(self, trajectory_solver, ensembles, processes=1, verbose=True, pbar=False):
+        self._verbose = verbose
+        self._pbar = pbar
+        if verbose and pbar:
+            raise ValueError("EnsembleSolver can't output logging data and progress bar")
         self._trajectory_solvers = [copy.deepcopy(
             trajectory_solver) for _ in range(ensembles)]
         self._ensembles = ensembles
@@ -122,7 +126,7 @@ class EnsembleSolver:
             self._trajectory_solvers, self._processes))
         for thread, chunk in enumerate(solver_chunks):
             p = Process(target=self.solve_trajectory,
-                        args=(queue, thread, chunk))
+                        args=(queue, thread, chunk, self._verbose))
             p.start()
         start_index = 0
         for chunk in solver_chunks:
@@ -153,13 +157,13 @@ class EnsembleSolver:
         self.square_sample_error = np.std(
             self._storage**2, axis=0)/sqrt(self._ensembles - 1)
 
-    @staticmethod
-    def solve_trajectory(queue, threadnr, solvers):
+    def solve_trajectory(self, queue, threadnr, solvers, verbose):
         results = []
         start_time = datetime.now()
-        for snr, solver in enumerate(solvers):
-            print(
-                f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, time = {datetime.now() - start_time}")
+        for snr, solver in self.progress_bar(threadnr)(enumerate(solvers), total=len(solvers)):
+            if verbose:
+                print(
+                    f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, time = {datetime.now() - start_time}")
             # for time step error estimation, copy the solver with a finer
             # step size
             solver_fine = copy.deepcopy(solver)
@@ -175,6 +179,9 @@ class EnsembleSolver:
             solver_fine.solve(average=False)
             results.append((solver.solution, solver_fine.solution))
         queue.put(results)
+
+    def progress_bar(self, threadnr):
+        return tqdm if threadnr == 0 and self._pbar else lambda s, **kwargs: s
 
     @staticmethod
     def chunks(l, n):
@@ -219,6 +226,21 @@ class Visualizer:
         ax.grid(True)
         return fig, ax
 
+    def at_origin(self, *args, **kwargs):
+        ys = self._solution[:, 0]
+        fig, ax = plt.subplots(1)
+        if self._step_error is not None:
+            step_error = self._step_error[:, 0]
+            ax.errorbar(self._ts, ys, yerr=step_error, **kwargs)
+        else:
+            step_error = 0
+            ax.plot(self._ts, ys, *args, **kwargs)
+        if self._sample_error is not None:
+            error = self._sample_error[:, 0] + step_error
+            ax.fill_between(self._ts, ys-error, ys+error, alpha=0.25)
+        ax.grid(True)
+        return fig, ax
+
     @property
     def xaxis(self):
         return self._xs
@@ -242,7 +264,7 @@ class DerivativeOperator:
             matrix[0, :] = matrix[1, :]
             matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
             matrix[-2, -1] = 1
-            du = 1/(2*self._dx) * matrix @ u 
+            du = 1/(2*self._dx) * matrix @ u
         elif self._order == 2:
             raise NotImplementedError("Second-order FD not yet implemented")
             du = np.zeros(dim)

@@ -9,28 +9,29 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 31
-    steps = 150**2
+    steps = 150*150
     tmax = 5
-    samples = 16
+    samples = 160
     processes = 4
 
     sigma = 0.25
     k = -1
 
     f = 1
-    g = lambda u: (k - sigma**2)*u
-    gderiv = lambda u: k - sigma**2
-    #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
+    #g = lambda u: (k - sigma**2)*u
+    #gderiv = lambda u: k - sigma**2
+    g = lambda u: -0.5*sigma*u*np.exp(-u**2)
     gderiv = None
 
     u0 = np.ones(points)
     noise = WhiteNoise(2, points)
 
-    spde = SPDE(coeff, geometric_brownian(points, k, sigma, f, g),
+    #simple_sde = lambda a, t, w: -0.5*a*np.exp(-a**2) + 0.5*sigma*a*np.exp(-0.5*a**2)/sqrt(2)
+    spde = SPDE(coeff, linmult_arnold(points, k, sigma, f, g),
                 noise, points, f, g, right_deriv=gderiv)
 
     solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
-    ensemble_solver = EnsembleSolver(solver, samples, processes=processes)
+    ensemble_solver = EnsembleSolver(solver, samples, processes=processes, verbose=False, pbar=True)
     ensemble_solver.solve()
     mean = ensemble_solver.mean
     square = ensemble_solver.square
@@ -42,7 +43,7 @@ if __name__ == "__main__":
                       sample_error=ensemble_solver.square_sample_error,
                       step_error=ensemble_solver.square_step_error)
 
-    mesh_points = min([20, points, steps])
+    mesh_points = min([10, points, steps])
     fig, ax = vis.surface(cstride=points//mesh_points,
                           rstride=steps//mesh_points)
     ts = vis.xaxis
@@ -83,5 +84,13 @@ if __name__ == "__main__":
     """End Scipy solution"""
 
     ax3.legend()
+
+    fig4, ax4 = vis.at_origin(marker='o', linestyle='-.')
+    ax4.plot(vis._ts, np.exp(k*vis._ts))
+
+    fig5, ax5 = vis2.at_origin(marker='o', linestyle='-.')
+    ax5.plot(vis._ts, 
+             (f + sigma**2/(2*k+sigma**2)) *
+             np.exp((2*k + sigma**2)*vis._ts) - sigma**2/(2*k + sigma**2))
 
     plt.show()
