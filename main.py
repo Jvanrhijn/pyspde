@@ -1,6 +1,7 @@
 from src.spde import *
 from src.linear_solvers import GalerkinSolver, SpectralSolver
 from src.noises import WhiteNoise
+from src.visualizer import Visualizer
 from mpl_toolkits import mplot3d
 from examples.potentials import *
 

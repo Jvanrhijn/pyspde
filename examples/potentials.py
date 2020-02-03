@@ -1,4 +1,4 @@
-from src.spde import DerivativeOperator
+from src.deriv import DerivativeOperator
 import numpy as np
 
 

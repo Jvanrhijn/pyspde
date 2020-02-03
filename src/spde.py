@@ -118,16 +118,36 @@ class EnsembleSolver:
 
     def solve(self):
         queue = Queue()
-        # split the solver list into chunks
+        # split the solver list into chunks for threading
         solver_chunks = list(self.chunks(
             self._trajectory_solvers, self._processes))
+
+        # generate seeds for each thread
         seeds = [self._rng.randint(0, 2**32-1) for _ in range(self._processes)]
+
+        # dispatch threads
         for thread, chunk in enumerate(solver_chunks):
             p = Process(target=self.solve_trajectory,
                         args=(queue, thread, seeds[thread], chunk, self._verbose))
             p.start()
+
+        # retrieve the data from the queue and post-process
+        self._post_process(queue)
+
+        # calculate some moments and errors
+        # TODO: allow computation of arbitrary functions of fields
+        self.step_error = np.mean(self.step_error, axis=0)
+        self.mean = np.mean(self._storage, axis=0)
+        self.square_step_error = 2*self.mean*self.step_error + self.step_error**2
+        self.square = np.mean(self._storage**2, axis=0)
+        self.sample_error = np.std(
+            self._storage, axis=0)/sqrt(self._ensembles - 1)
+        self.square_sample_error = np.std(
+            self._storage**2, axis=0)/sqrt(self._ensembles - 1)
+
+    def _post_process(self, queue):
         start_index = 0
-        for chunk in solver_chunks:
+        for _ in range(self._processes):
             # obtain individual trajectory results from queue
             results = queue.get()
             results, fine_results = zip(*results)
@@ -145,16 +165,6 @@ class EnsembleSolver:
             self._storage[r[0]:r[1]] = true_results
             self.step_error[r[0]:r[1]] = np.abs(fine_results[:, ::2] - results)
 
-        # calculate some moments and errors
-        self.step_error = np.mean(self.step_error, axis=0)
-        self.mean = np.mean(self._storage, axis=0)
-        self.square_step_error = 2*self.mean*self.step_error + self.step_error**2
-        self.square = np.mean(self._storage**2, axis=0)
-        self.sample_error = np.std(
-            self._storage, axis=0)/sqrt(self._ensembles - 1)
-        self.square_sample_error = np.std(
-            self._storage**2, axis=0)/sqrt(self._ensembles - 1)
-
     def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []
         start_time = datetime.now()
@@ -162,15 +172,15 @@ class EnsembleSolver:
         for snr, solver in self.progress_bar(threadnr)(enumerate(solvers), total=len(solvers)):
             if verbose:
                 print(
-                    f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, time = {datetime.now() - start_time}")
-            # for time step error estimation, copy the solver with a finer
-            # step size
-            solver_fine = copy.deepcopy(solver)
-            solver_fine.steps = solver.steps * 2
+                    f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, \
+                        time = {datetime.now() - start_time}")
             # generate seed
             seed = self._rng.randint(0, 2**32-1)
             solver.seed = seed
-            solver_fine.seed = seed
+            # for time step error estimation, copy the solver and set a finer
+            # step size
+            solver_fine = copy.deepcopy(solver)
+            solver_fine.steps = solver.steps * 2
             # solve both the original and the fine trajectory
             # 'average' keyword telse the coarse solver to average
             # two subsequent fine noise terms for consisteny
@@ -187,88 +197,3 @@ class EnsembleSolver:
         """Yield n number of striped chunks from l."""
         for i in range(0, n):
             yield l[i::n]
-
-
-class Visualizer:
-
-    def __init__(self, solution, trange, srange, sample_error=None, step_error=None):
-        self._solution = solution
-        self._sample_error = sample_error
-        self._step_error = step_error
-        self._trange = trange
-        self._srange = srange
-        steps, points = solution.shape
-        dx = 1/points
-        self._xs = np.linspace(self._srange[0] + dx, self._srange[1], points)
-        self._ts = np.linspace(*self._trange, steps)
-
-    def surface(self, *args, **kwargs):
-        xs, ts = np.meshgrid(self._xs, self._ts)
-        fig = plt.figure()
-        ax = fig.add_subplot(projection="3d")
-        ax.plot_surface(xs, ts, self._solution, *
-                        args, cmap="viridis", **kwargs)
-        return fig, ax
-
-    def steady_state(self, *args, **kwargs):
-        ss = self._solution[-1]
-        fig, ax = plt.subplots(1)
-        if self._step_error is not None:
-            step_error = self._step_error[-1]
-            ax.errorbar(self._xs, ss, yerr=step_error, **kwargs)
-        else:
-            step_error = 0
-            ax.plot(self._xs, ss, *args, **kwargs)
-        if self._sample_error is not None:
-            error = self._sample_error[-1] + step_error
-            ax.fill_between(self._xs, ss-error, ss+error, alpha=0.25)
-        ax.grid(True)
-        return fig, ax
-
-    def at_origin(self, *args, **kwargs):
-        y = self._solution[:, 0]
-        fig, ax = plt.subplots(1)
-        if self._step_error is not None:
-            step_error = self._step_error[:, 0]
-            ax.errorbar(self._ts, y, yerr=step_error, **kwargs)
-        else:
-            step_error = 0
-            ax.plot(self._ts, y, *args, **kwargs)
-        if self._sample_error is not None:
-            error = self._sample_error[:, 0] + step_error
-            ax.fill_between(self._ts, y-error, y+error, alpha=0.25)
-        ax.grid(True)
-        return fig, ax
-
-    @property
-    def xaxis(self):
-        return self._xs
-
-
-class DerivativeOperator:
-
-    def __init__(self, order, dx, left, right):
-        self._order = order
-        self._dx = dx
-        self._left = left
-        self._right = right
-
-    def __call__(self, u):
-        # TODO Improve this
-        dim = len(u)
-        matrix = np.zeros((dim, dim))
-        if self._order == 1:
-            matrix[:-1, :-1] = np.diag(np.ones(dim-2),
-                                       k=1) - np.diag(np.ones(dim-2), k=-1)
-            matrix[0, :] = matrix[1, :]
-            matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
-            matrix[-2, -1] = 1
-            derivative = 1/(2*self._dx) * matrix @ u
-        elif self._order == 2:
-            raise NotImplementedError("Second-order FD not yet implemented")
-            derivative = np.zeros(dim)
-            derivative[1:-1] = (u[2:] - 2*u[1:-1] + u[:-2])/self._dx**2
-            derivative[0] = derivative[1]
-            derivative[-1] = 2 * (self._right(u[-1])/self._dx -
-                                  (u[-1] - u[-2])/self._dx**2)
-        return derivative
