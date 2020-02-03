@@ -30,11 +30,14 @@ if __name__ == "__main__":
     spde = SPDE(coeff, linmult_arnold(points, k, sigma, f, g),
                 noise, points, f, g)
 
-    solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
-    ensemble_solver = EnsembleSolver(solver, samples, processes=processes, verbose=False, pbar=True)
+    solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=False))
+    ensemble_solver = EnsembleSolver(solver, samples, processes=processes, verbose=False, pbar=True, seed=0)
     ensemble_solver.solve()
     mean = ensemble_solver.mean
     square = ensemble_solver.square
+
+    print(f"Max step error =   {ensemble_solver.step_error[-1].max()}")
+    print(f"Max sample error = {ensemble_solver.sample_error[-1].max()}")
 
     vis = Visualizer(mean, (0, tmax), (0, 1),
                      sample_error=ensemble_solver.sample_error,

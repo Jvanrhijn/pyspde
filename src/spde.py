@@ -121,9 +121,10 @@ class EnsembleSolver:
         # split the solver list into chunks
         solver_chunks = list(self.chunks(
             self._trajectory_solvers, self._processes))
+        seeds = [self._rng.randint(0, 2**32-1) for _ in range(self._processes)]
         for thread, chunk in enumerate(solver_chunks):
             p = Process(target=self.solve_trajectory,
-                        args=(queue, thread, chunk, self._verbose))
+                        args=(queue, thread, seeds[thread], chunk, self._verbose))
             p.start()
         start_index = 0
         for chunk in solver_chunks:
@@ -154,9 +155,10 @@ class EnsembleSolver:
         self.square_sample_error = np.std(
             self._storage**2, axis=0)/sqrt(self._ensembles - 1)
 
-    def solve_trajectory(self, queue, threadnr, solvers, verbose):
+    def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []
         start_time = datetime.now()
+        self._rng.seed(seed)
         for snr, solver in self.progress_bar(threadnr)(enumerate(solvers), total=len(solvers)):
             if verbose:
                 print(
