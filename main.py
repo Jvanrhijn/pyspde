@@ -9,7 +9,7 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 31
-    steps = int(50_000)
+    steps = int(1000)
     tmax = 5
     samples = 16
     processes = 4
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     spde = SPDE(coeff, linmult_arnold(points, k, sigma, f, g),
                 noise, points, f, g)
 
-    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver)
+    solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
     ensemble_solver = EnsembleSolver(solver, samples, processes=processes, verbose=False, pbar=True)
     ensemble_solver.solve()
     mean = ensemble_solver.mean

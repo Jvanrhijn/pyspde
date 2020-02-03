@@ -66,7 +66,7 @@ class GalerkinSolver(LinearSolver):
     def propagate_step(self, function):
         fem = self._sol_to_fem @ (function - self._spde.left)
         fem0 = fem
-        v = self.newton_iterate(fem, fem0)
+        fem = self.newton_iterate(fem, fem0)
         return self._spde.left + self._fem_to_sol @ fem
 
     def inverse_jacobian(self, function):
@@ -109,7 +109,7 @@ class GalerkinSolver(LinearSolver):
 
 class SpectralSolver(LinearSolver):
 
-    def __init__(self, spde, dt):
+    def __init__(self, spde, dt, store_midpoint=True):
         self._spde = spde
         self._dt = dt
         self._transform = Transform(
@@ -117,48 +117,44 @@ class SpectralSolver(LinearSolver):
         self._d = self._transform.derivative_matrix
         self._d_inv = 1/self._d
         self._propagator = np.exp(-spde.linear*self._d*dt)
+        # TODO: generalize to L != 1
         self._xs = np.linspace(1/spde.points, 1, spde.points)
+        # midpoint value for theta
+        self._store_midpoint = store_midpoint
         self._theta = None
 
     def propagate_step(self, u):
-        xs = self._xs
         max_iters = 100
         tolerance = 1e-10
-        transform = self._transform
-        v0 = transform.homogenize(u, xs)
-        v0hat = transform.fft(v0)
-        propagator = self._propagator
+        v0 = self._transform.homogenize(u, self._xs)
+        v0hat = self._transform.fft(v0)
 
         # If we have a stored midpoint theta, use that
-        if self._theta is not None:
-            theta = self._theta
-        else:
-            # Guess initial value for theta
-            theta = np.zeros(len(xs))
+        theta = self._theta if self._theta is not None else np.zeros(len(self._xs))
 
         u_boundary = u[-1]
         ut_boundary = 0
 
         for it1 in range(max_iters):
             # Compute homogenized function in Fourier space using IP
-            vhat = (1 - propagator) * self._d_inv * theta + propagator * v0hat
+            vhat = (1 - self._propagator) * self._d_inv * theta + self._propagator * v0hat
             # Compute time-derivative in Fourier space using the ODE for vhat
             dvhat_dt = -self._d * vhat + theta
 
             # Transform back to real space
-            v = transform.ifft(vhat)
-            dvdt = transform.ifft(dvhat_dt)
+            v = self._transform.ifft(vhat)
+            dvdt = self._transform.ifft(dvhat_dt)
 
             u_boundary_old = u_boundary
-            u_boundary, ut_boundary = transform.boundary_iteration(
-                xs, v, dvdt, u_boundary, ut_boundary)
+            u_boundary, ut_boundary = self._transform.boundary_iteration(
+                self._xs, v, dvdt, u_boundary, ut_boundary)
 
             # only compute new theta iterate if we don't have a midpoint value
             # stored
             if self._theta is None:
                 # Compute new value for theta using new boundary values for u
-                theta = transform.fft(transform.theta(
-                    xs, u_boundary, ut_boundary))
+                theta = self._transform.fft(self._transform.theta(
+                    self._xs, u_boundary, ut_boundary))
 
             # check convergence
             if abs(u_boundary - u_boundary_old) < tolerance:
@@ -167,14 +163,11 @@ class SpectralSolver(LinearSolver):
             if it1 == max_iters-1:
                 print("WARNING: outer loop max iters reached")
 
-        # store midpoint theta if needed
-        if self._theta is None:
-            self._theta = theta
-        else:
-            self._theta = None
+        # store midpoint theta if needed, else delete it
+        self._theta = theta if self._theta is None and self._store_midpoint else None
 
         # return solution value at this time point
-        return transform.dehomogenize(v, xs, u_boundary)
+        return self._transform.dehomogenize(v, self._xs, u_boundary)
 
 
 class Transform:

@@ -32,16 +32,9 @@ class WhiteNoise:
         if dt == 0.0:
             return self._value
         # generate white noise process
-        if average:
-            dt *= 0.5
-            value_half = self._rng.normal(scale=sqrt(
-                self._variance/(self._dx*dt)), size=self._dimension)
-            value_whole = self._rng.normal(scale=sqrt(
-                self._variance/(self._dx*dt)), size=self._dimension)
-            self._value = 0.5 * (value_half + value_whole)
-        else:
-            self._value = self._rng.normal(scale=sqrt(
-                self._variance/(self._dx*dt)), size=self._dimension)
+        factor = 2 if average else 1
+        self._value = np.mean(self._rng.normal(scale=sqrt(factor*self._variance/(self._dx*dt)),
+                                               size=(factor, self._dimension)), axis=0)
         self._time = t
         return self._value
 
