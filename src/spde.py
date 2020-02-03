@@ -96,7 +96,8 @@ class TrajectorySolver:
 
 class EnsembleSolver:
 
-    def __init__(self, trajectory_solver, ensembles, processes=1, verbose=True, pbar=False, seed=None):
+    def __init__(self, trajectory_solver, ensembles, observables=dict(), 
+                    blocks=2, processes=1, verbose=True, pbar=False, seed=None):
         self._verbose = verbose
         self._pbar = pbar
         self._rng = random.Random(seed)
@@ -106,21 +107,24 @@ class EnsembleSolver:
         self._trajectory_solvers = [copy.deepcopy(
             trajectory_solver) for _ in range(ensembles)]
         self._ensembles = ensembles
+
+        # storage
+        self._observables = observables
         self._storage = np.zeros(
             (self._ensembles, *trajectory_solver.solution.shape))
-        self.mean = None
-        self.square = None
-        self.sample_error = None
+        self._observe_data = {
+            key: f(self._storage) for key, f in self._observables.items()
+        }
+
+        self._blocks = blocks
         self.step_error = np.zeros(self._storage.shape)
-        self.square_step_error = None
-        self.square_sample_error = None
         self._processes = processes
 
     def solve(self):
         queue = Queue()
         # split the solver list into chunks for threading
-        solver_chunks = list(self.chunks(
-            self._trajectory_solvers, self._processes))
+        solver_chunks = self.chunks(
+            self._trajectory_solvers, self._processes)
 
         # generate seeds for each thread
         seeds = [self._rng.randint(0, 2**32-1) for _ in range(self._processes)]
@@ -134,36 +138,53 @@ class EnsembleSolver:
         # retrieve the data from the queue and post-process
         self._post_process(queue)
 
-        # calculate some moments and errors
-        # TODO: allow computation of arbitrary functions of fields
-        self.step_error = np.mean(self.step_error, axis=0)
-        self.mean = np.mean(self._storage, axis=0)
-        self.square_step_error = 2*self.mean*self.step_error + self.step_error**2
-        self.square = np.mean(self._storage**2, axis=0)
-        self.sample_error = np.std(
-            self._storage, axis=0)/sqrt(self._ensembles - 1)
-        self.square_sample_error = np.std(
-            self._storage**2, axis=0)/sqrt(self._ensembles - 1)
+        # do blocking
+        blocks = {
+            key: list(self.chunks(data, self._blocks)) for key, data in self._observe_data.items()
+        }
+
+        block_means = {
+            key: np.mean(block, axis=0) for key, block in blocks.items()
+        }
+
+        self.means = {
+            key: np.mean(bmean, axis=0) for key, bmean in block_means.items()
+        }
+
+        self.sample_errors = {
+            key: np.std(b, axis=0)/sqrt(len(b)-1) for key, b in self.means.items()
+        }
+
+        self.step_errors = {
+            key: np.mean(np.abs((f(self.means[key] + 0.001) - f(self.means[key]))/0.001)*self.step_error, axis=0) 
+                for key, f in self._observables.items()
+        }
 
     def _post_process(self, queue):
         start_index = 0
         for _ in range(self._processes):
+
             # obtain individual trajectory results from queue
             results = queue.get()
             results, fine_results = zip(*results)
             results, fine_results = np.array(results), np.array(fine_results)
             num_results = len(results)
+
             # calculate range in internal trajectory storage
             r = (start_index, start_index + num_results)
             start_index += num_results
+
             # perform extrapolation to small step size limit
             order = 1
             epsilon = 1 / (2**order - 1)
             true_results = (1 + epsilon) * \
                 fine_results[:, ::2] - epsilon * results
+
             # store results
             self._storage[r[0]:r[1]] = true_results
             self.step_error[r[0]:r[1]] = np.abs(fine_results[:, ::2] - results)
+            for key, f in self._observables.items():
+                self._observe_data[key][r[0]:r[1]] = f(true_results)
 
     def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []
