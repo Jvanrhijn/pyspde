@@ -9,28 +9,28 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 31
-    steps = int(1e4)
+    steps = int(50_000)
     tmax = 5
-    samples = 64
+    samples = 16
     processes = 4
 
     sigma = 0.25
-    k = -1
+    k = -0.5
 
     f = 1
-    #g = lambda u: (k - sigma**2)*u
+    g = lambda u: (k - sigma**2)*u
     #gderiv = lambda u: k - sigma**2
-    g = lambda u: -0.5*sigma*u*np.exp(-u**2)
-    gderiv = None
+    #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
+    #gderiv = None
 
     u0 = np.ones(points)
-    noise = WhiteNoise(1, points)
+    noise = WhiteNoise(2, points)
 
     #simple_sde = lambda a, t, w: -0.5*a*np.exp(-a**2) + 0.5*sigma*a*np.exp(-0.5*a**2)/sqrt(2)
     spde = SPDE(coeff, linmult_arnold(points, k, sigma, f, g),
-                noise, points, f, g, right_deriv=gderiv)
+                noise, points, f, g)
 
-    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
+    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver)
     ensemble_solver = EnsembleSolver(solver, samples, processes=processes, verbose=False, pbar=True)
     ensemble_solver.solve()
     mean = ensemble_solver.mean
@@ -70,8 +70,8 @@ if __name__ == "__main__":
     from scipy.integrate import solve_bvp
 
     def du(t, u):
-        #return np.vstack((u[1], u[0] / (1 + u[0]**2)*(u[1]**2 + (k - sigma**2)**2)))
-        return np.vstack((u[1], u[0]*u[1]**2 + sigma**2 / 4 * np.exp(-2*u[0]**2) * (u[0]**3 - 1.5*u[0])))
+        return np.vstack((u[1], u[0] / (1 + u[0]**2)*(u[1]**2 + (k - sigma**2)**2)))
+        #return np.vstack((u[1], u[0]*u[1]**2 + sigma**2 / 4 * np.exp(-2*u[0]**2) * (u[0]**3 - 1.5*u[0])))
 
     def bc(ua, ub):
         return np.array([ua[0] - f, ub[1] - g(ub[0])])

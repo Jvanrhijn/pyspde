@@ -1,16 +1,11 @@
-from abc import ABC, abstractmethod
-from functools import partial
-from math import sin, cos, sqrt
+from math import sqrt
 import copy
 from multiprocessing import Process, Queue
 from datetime import datetime
 import random
 
 import numpy as np
-from scipy.integrate import quad
-from scipy.linalg import expm
 import matplotlib.pyplot as plt
-from scipy.stats import norm
 
 try:
     from tqdm import tqdm
@@ -106,7 +101,8 @@ class EnsembleSolver:
         self._pbar = pbar
         self._rng = random.Random(seed)
         if verbose and pbar:
-            raise ValueError("EnsembleSolver can't output logging data and progress bar")
+            raise ValueError(
+                "EnsembleSolver can't output logging data and progress bar")
         self._trajectory_solvers = [copy.deepcopy(
             trajectory_solver) for _ in range(ensembles)]
         self._ensembles = ensembles
@@ -228,17 +224,17 @@ class Visualizer:
         return fig, ax
 
     def at_origin(self, *args, **kwargs):
-        ys = self._solution[:, 0]
+        y = self._solution[:, 0]
         fig, ax = plt.subplots(1)
         if self._step_error is not None:
             step_error = self._step_error[:, 0]
-            ax.errorbar(self._ts, ys, yerr=step_error, **kwargs)
+            ax.errorbar(self._ts, y, yerr=step_error, **kwargs)
         else:
             step_error = 0
-            ax.plot(self._ts, ys, *args, **kwargs)
+            ax.plot(self._ts, y, *args, **kwargs)
         if self._sample_error is not None:
             error = self._sample_error[:, 0] + step_error
-            ax.fill_between(self._ts, ys-error, ys+error, alpha=0.25)
+            ax.fill_between(self._ts, y-error, y+error, alpha=0.25)
         ax.grid(True)
         return fig, ax
 
@@ -265,12 +261,12 @@ class DerivativeOperator:
             matrix[0, :] = matrix[1, :]
             matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
             matrix[-2, -1] = 1
-            du = 1/(2*self._dx) * matrix @ u
+            derivative = 1/(2*self._dx) * matrix @ u
         elif self._order == 2:
             raise NotImplementedError("Second-order FD not yet implemented")
-            du = np.zeros(dim)
-            du[1:-1] = (u[2:] - 2*u[1:-1] + u[:-2])/self._dx**2
-            du[0] = du[1]
-            du[-1] = 2 * (self._right(u[-1])/self._dx -
-                          (u[-1] - u[-2])/self._dx**2)
-        return du
+            derivative = np.zeros(dim)
+            derivative[1:-1] = (u[2:] - 2*u[1:-1] + u[:-2])/self._dx**2
+            derivative[0] = derivative[1]
+            derivative[-1] = 2 * (self._right(u[-1])/self._dx -
+                                  (u[-1] - u[-2])/self._dx**2)
+        return derivative

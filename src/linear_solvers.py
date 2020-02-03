@@ -1,21 +1,15 @@
 from abc import ABC, abstractmethod
 from functools import partial
-from math import sin, cos, sqrt
-import copy
-from warnings import Warning
 
 import numpy as np
 from scipy.fftpack import dst, idst, dct, idct
-from scipy.integrate import quad
 from scipy.linalg import expm
-import matplotlib.pyplot as plt
-from scipy.stats import norm
 
 
 class LinearSolver(ABC):
 
     @abstractmethod
-    def propagate_step(self, u):
+    def propagate_step(self, function):
         raise NotImplementedError()
 
 
@@ -27,11 +21,13 @@ class GalerkinSolver(LinearSolver):
         self._spde = spde
         self._gderiv = spde.right_deriv
         # assume sine basis, we'll generalize later
-        self._basis_spectral = [partial(self._basis_sine, n) for n in range(1, spde.points)]\
+        self._basis_spectral = [partial(self._basis_sine, n)
+                                for n in range(1, spde.points)]\
             + [lambda x: x]
 
-        self._basis_spectral_deriv = [partial(self._basis_sine_deriv, n) for n in range(1, spde.points)]\
-            + [lambda x: np.ones(x.shape) if type(x) == np.ndarray else 1]
+        self._basis_spectral_deriv = [partial(self._basis_sine_deriv, n)
+                                      for n in range(1, spde.points)]\
+            + [lambda x: np.ones(x.shape) if isinstance(x, np.ndarray) else 1]
 
         # precompute Galerkin matrices
         dim = spde.points
@@ -67,24 +63,24 @@ class GalerkinSolver(LinearSolver):
         self._q = self._s @ self._phi_right
         self._qphi = np.outer(self._q, self._phi_right)
 
-    def propagate_step(self, u):
-        v = self._sol_to_fem @ (u - self._spde.left)
-        v0 = v
-        v = self.newton_iterate(v, v0)
-        return self._spde.left + self._fem_to_sol @ v
+    def propagate_step(self, function):
+        fem = self._sol_to_fem @ (function - self._spde.left)
+        fem0 = fem
+        v = self.newton_iterate(fem, fem0)
+        return self._spde.left + self._fem_to_sol @ fem
 
-    def inverse_jacobian(self, u):
-        gprime = self._gderiv(self._spde.left + u @ self._phi_right)
-        return -(np.eye(self._spde.points) + gprime * self._qphi / (1 - gprime * self._phi_right @ self._q))
+    def inverse_jacobian(self, function):
+        gprime = self._gderiv(self._spde.left + function @ self._phi_right)
+        return -(np.eye(self._spde.points) \
+            + gprime * self._qphi / (1 - gprime * self._phi_right @ self._q))
 
-    def G(self, u):
-        return self._spde.right(self._spde.left + np.dot(u, self._phi_right))*self._phi_right
+    def G(self, function):
+        return self._spde.right(self._spde.left + function @ self._phi_right)*self._phi_right
 
     def newton_iterate(self, x, v0, it_max=100, tolerance=1e-10):
-        def func(y): return self._contract(y, v0) - y
         for it in range(it_max):
             x_old = x
-            x = x - self.inverse_jacobian(x) @ func(x)
+            x = x - self.inverse_jacobian(x) @ (self._contract(x, v0) - x)
             if np.linalg.norm(x - x_old) < tolerance:
                 break
             if it == it_max-1:
@@ -122,6 +118,7 @@ class SpectralSolver(LinearSolver):
         self._d_inv = 1/self._d
         self._propagator = np.exp(-spde.linear*self._d*dt)
         self._xs = np.linspace(1/spde.points, 1, spde.points)
+        self._theta = None
 
     def propagate_step(self, u):
         xs = self._xs
@@ -131,16 +128,18 @@ class SpectralSolver(LinearSolver):
         v0 = transform.homogenize(u, xs)
         v0hat = transform.fft(v0)
         propagator = self._propagator
-        dim = self._spde.points
 
-        # Guess initial values for iterated parameters
-        theta = np.zeros(len(xs))
+        # If we have a stored midpoint theta, use that
+        if self._theta is not None:
+            theta = self._theta
+        else:
+            # Guess initial value for theta
+            theta = np.zeros(len(xs))
+
         u_boundary = u[-1]
         ut_boundary = 0
 
         for it1 in range(max_iters):
-            theta_old = theta
-
             # Compute homogenized function in Fourier space using IP
             vhat = (1 - propagator) * self._d_inv * theta + propagator * v0hat
             # Compute time-derivative in Fourier space using the ODE for vhat
@@ -154,8 +153,12 @@ class SpectralSolver(LinearSolver):
             u_boundary, ut_boundary = transform.boundary_iteration(
                 xs, v, dvdt, u_boundary, ut_boundary)
 
-            # Compute new value for theta using new boundary values for u
-            theta = transform.fft(transform.theta(xs, u_boundary, ut_boundary))
+            # only compute new theta iterate if we don't have a midpoint value
+            # stored
+            if self._theta is None:
+                # Compute new value for theta using new boundary values for u
+                theta = transform.fft(transform.theta(
+                    xs, u_boundary, ut_boundary))
 
             # check convergence
             if abs(u_boundary - u_boundary_old) < tolerance:
@@ -164,7 +167,13 @@ class SpectralSolver(LinearSolver):
             if it1 == max_iters-1:
                 print("WARNING: outer loop max iters reached")
 
-        # returnsolution value at this time point
+        # store midpoint theta if needed
+        if self._theta is None:
+            self._theta = theta
+        else:
+            self._theta = None
+
+        # return solution value at this time point
         return transform.dehomogenize(v, xs, u_boundary)
 
 
@@ -182,7 +191,7 @@ class Transform:
         ----------
         boundaries: list
             List of boundary types. A '1' means Dirichlet, '-1' means Robin
-        f: float 
+        f: float
             Fixed boundary value
         g: float or function
             Fixed boundary value if boundaries == [1, 1], or Robin
@@ -224,7 +233,7 @@ class Transform:
         u: np.ndarray
             Function value at the lattice points
         x: np.ndarray
-            Lattice values 
+            Lattice values
         """
         if self._boundaries == [1, -1]:
             return u - self._f - x*self._g(u[-1])
