@@ -7,6 +7,8 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
+from src.integral import Integral
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -96,8 +98,8 @@ class TrajectorySolver:
 
 class EnsembleSolver:
 
-    def __init__(self, trajectory_solver, ensembles, observables=dict(), 
-                    blocks=2, processes=1, verbose=True, pbar=False, seed=None):
+    def __init__(self, trajectory_solver, ensembles, observables=dict(),
+                 blocks=2, processes=1, verbose=True, pbar=False, seed=None):
         self._verbose = verbose
         self._pbar = pbar
         self._rng = random.Random(seed)
@@ -152,13 +154,20 @@ class EnsembleSolver:
         }
 
         self.sample_errors = {
-            key: np.std(b, axis=0)/sqrt(len(b)-1) for key, b in self.means.items()
+            key: np.std(b, axis=0)/sqrt(self._blocks-1) for key, b in self.means.items()
         }
 
-        self.step_errors = {
-            key: np.mean(np.abs((f(self.means[key] + 0.001) - f(self.means[key]))/0.001)*self.step_error, axis=0) 
-                for key, f in self._observables.items()
-        }
+        self.step_errors = dict()
+        for key, f in self._observables.items():
+            if not isinstance(f, Integral):
+                # Very simple finite difference estimation of
+                # step size errors via interval analysis
+                self.step_errors[key] = np.mean(np.abs((f(self._storage + 0.001)
+                                                        - f(self._storage))/0.001)*self.step_error, axis=0)
+            else:
+                # TODO: figure out step error estimation in case of
+                # observable being a functional integral
+                self.step_errors[key] = np.zeros(self.means[key].shape)
 
     def _post_process(self, queue):
         start_index = 0

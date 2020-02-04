@@ -35,12 +35,15 @@ if __name__ == "__main__":
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
     solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
 
+    ts = np.linspace(1/points, 1, points)
+
     ensemble_solver = EnsembleSolver(
             solver, 
             samples, 
             observables={
                 "value": lambda x: x,
-                "square": lambda x: x**2
+                "square": lambda x: x**2,
+                "energy": Integral(lambda x: 0.5*x**2, ts, 2),
             },
             blocks=blocks, 
             processes=processes, 
@@ -51,7 +54,6 @@ if __name__ == "__main__":
 
     ensemble_solver.solve()
     mean = ensemble_solver.means["value"]
-    print(mean.shape)
     square = ensemble_solver.means["square"]
 
     step_errors = ensemble_solver.step_errors["value"]
@@ -59,6 +61,9 @@ if __name__ == "__main__":
 
     print(f"Max step error =   {step_errors.max()}")
     print(f"Max sample error = {sample_errors.max()}")
+
+    plt.figure()
+    plt.plot(np.linspace(0, tmax, steps+1), ensemble_solver.means["energy"])
 
     vis = Visualizer(mean, (0, tmax), (0, 1),
                      sample_error=ensemble_solver.sample_errors["value"],
