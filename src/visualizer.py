@@ -11,7 +11,7 @@ class Visualizer:
         self._trange = trange
         self._srange = srange
         steps, points = solution.shape
-        dx = 1/points
+        dx = (srange[1] - srange[0])/points
         self._xs = np.linspace(self._srange[0] + dx, self._srange[1], points)
         self._ts = np.linspace(*self._trange, steps)
 

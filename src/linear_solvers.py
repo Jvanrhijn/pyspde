@@ -4,6 +4,7 @@ from functools import partial
 import numpy as np
 from scipy.fftpack import dst, idst, dct, idct
 from scipy.linalg import expm
+from scipy.integrate import quad
 
 
 class LinearSolver(ABC):
@@ -17,14 +18,16 @@ class GalerkinSolver(LinearSolver):
 
     def __init__(self, spde):
         """Store data and precompute lots of stuff"""
-        self._xs = np.linspace(1/spde.points, 1, spde.points)
+        self._range = spde.space_range
+        self._xs = np.linspace(self._range[0] + 1/spde.points, self._range[1], spde.points)
         self._spde = spde
         self._gderiv = spde.right_deriv
+
 
         # assume sine basis, we'll generalize later
         self._basis_spectral = [partial(self._basis_sine, n)
                                 for n in range(1, spde.points)]\
-            + [lambda x: x]
+            + [lambda x: x - self._range[0]]
 
         self._basis_spectral_deriv = [partial(self._basis_sine_deriv, n)
                                       for n in range(1, spde.points)]\
@@ -40,7 +43,7 @@ class GalerkinSolver(LinearSolver):
 
         # build a manually
         ns = np.arange(0, spde.points, 1)
-        k = GalerkinSolver.k
+        k = self.k
         np.fill_diagonal(self._a, 0.5)
         self._a[:-1, -1] = self._a[-1, :-1] = np.sin(k(ns[1:]))/k(ns[1:])**2
         self._a[-1, -1] = 1/3
@@ -51,7 +54,10 @@ class GalerkinSolver(LinearSolver):
         self._b[-1, -1] = 1
         for i in range(dim):
             for j in range(dim):
+                #self._a[i, j] = quad(lambda x: self._basis_spectral[j](x)*self._basis_spectral[i](x), *self._range)[0]
+                #self._b[i, j] = quad(lambda x: self._basis_spectral_deriv[j](x)*self._basis_spectral_deriv[i](x), *self._range)[0]
                 phi[i, j] = self._basis_spectral[j](self._xs[i])
+
         self._fem_to_sol = phi
         self._sol_to_fem = np.linalg.inv(phi)
 
@@ -69,6 +75,9 @@ class GalerkinSolver(LinearSolver):
         self._qphi = np.outer(self._q, self._phi_right)
 
     def propagate_step(self, function):
+        if self._spde.linear == 0:
+            # do nothing if the linear part is zero
+            return function 
         fem = self._sol_to_fem @ (function - self._spde.left)
         fem0 = fem
         fem = self.newton_iterate(fem, fem0)
@@ -81,6 +90,16 @@ class GalerkinSolver(LinearSolver):
 
     def G(self, function):
         return self._spde.right(self._spde.left + function @ self._phi_right)*self._phi_right
+
+    def fixed_point_iterate(self, x, v0, it_max=100, tolerance=1e-10):
+        for it in range(it_max):
+            x_old = x
+            x = self._contract(x, v0)
+            if np.linalg.norm(x - x_old) < tolerance:
+                break
+            if it == it_max-1:
+                raise Warning("maximum Newton iterations reached")
+        return x
 
     def newton_iterate(self, x, v0, it_max=100, tolerance=1e-10):
         for it in range(it_max):
@@ -97,19 +116,16 @@ class GalerkinSolver(LinearSolver):
         return (np.eye(self._spde.points) - prop) @ self._b_inv @ self.G(v)\
             + prop @ v0
 
-    @staticmethod
-    def _basis_sine(n, x):
-        k = GalerkinSolver.k
-        return np.sin(k(n)*x)
+    def _basis_sine(self, n, x):
+        k = self.k
+        return np.sin(k(n)*(x - self._range[0]))
 
-    @staticmethod
-    def _basis_sine_deriv(n, x):
-        k = GalerkinSolver.k
-        return k(n)*np.cos(k(n)*x)
+    def _basis_sine_deriv(self, n, x):
+        k = self.k(n)
+        return k*np.cos(k*(x - self._range[0]))
 
-    @staticmethod
-    def k(n):
-        return (n - 0.5)*np.pi
+    def k(self, n):
+        return (n - 0.5)*np.pi / (self._range[1] - self._range[0])
 
 
 class SpectralSolver(LinearSolver):
@@ -131,6 +147,8 @@ class SpectralSolver(LinearSolver):
         self._propagator = np.exp(-self._spde.linear*self._d*dt)
 
     def propagate_step(self, u):
+        if self._spde.linear == 0:
+            return u
         max_iters = 100
         tolerance = 1e-10
         v0 = self._transform.homogenize(u, self._xs)

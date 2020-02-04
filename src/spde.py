@@ -18,10 +18,13 @@ except ImportError:
 
 class SPDE:
 
-    def __init__(self, linear, da, noise, points, left, right, right_deriv=None):
+    def __init__(self, linear, da, noise, points, left, right, space_range=(0, 1), right_deriv=None):
+        if space_range != (0, 1):
+            raise NotImplementedError("Only unit space interval supported")
         self.noise = noise
         self.linear = linear
         self.da = da
+        self.space_range = space_range
         self.left = left
         self.right = right
         if right_deriv is not None:
@@ -38,8 +41,8 @@ class TrajectorySolver:
         self._tmax = tmax
         self._steps = steps
         self._dt = tmax/steps
-        self._dx = 1/spde.points
-        self._xs = np.linspace(self._dx, 1, spde.points)
+        self._dx = (spde.space_range[1] - spde.space_range[0])/spde.points
+        self._xs = np.linspace(spde.space_range[0] + self._dx, spde.space_range[1], spde.points)
         self._initial = initial
         self._integrator = integrator
         # linear solver should propagate half time-step for MP algorithm
