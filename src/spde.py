@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from src.integral import Integral
+from src.integrators import Midpoint
 
 try:
     from tqdm import tqdm
@@ -32,7 +33,7 @@ class SPDE:
 
 class TrajectorySolver:
 
-    def __init__(self, spde, steps, tmax, initial, linear_solver):
+    def __init__(self, spde, steps, tmax, initial, linear_solver, integrator=Midpoint()):
         self._spde = spde
         self._tmax = tmax
         self._steps = steps
@@ -40,9 +41,11 @@ class TrajectorySolver:
         self._dx = 1/spde.points
         self._xs = np.linspace(self._dx, 1, spde.points)
         self._initial = initial
+        self._integrator = integrator
         # linear solver should propagate half time-step for MP algorithm
         self._linsolve_type = linear_solver
-        self._linear_solver = linear_solver(spde, self._dt/2)
+        self._linear_solver = linear_solver(spde)
+        self._linear_solver.set_timestep(self._dt / integrator.ipsteps())
         self._solution = np.zeros((steps+1, spde.points))
         self._solution[0] = initial
         self._time = 0
@@ -58,30 +61,12 @@ class TrajectorySolver:
         initial = self._solution[0]
         self._solution = np.zeros((steps+1, self._spde.points))
         self._solution[0] = initial
-        self._linear_solver = self._linsolve_type(self._spde, self._dt/2)
+        self._linear_solver.set_timestep(self._dt/2)
 
     def solve(self, average=False):
-        noise = self._spde.noise
-        midpoints_iters = 4
         for i in range(self._steps):
-            # propagate solution to t + dt/2
-            if self._spde.linear != 0:
-                a0 = self._linear_solver.propagate_step(self._solution[i])
-            else:
-                a0 = self._solution[i]
-            a = a0
-            # perform midpoint iteration
-            w = noise(self._time + 0.5*self._dt, average=average)
-            for _ in range(midpoints_iters):
-                a = a0 + 0.5*self._dt * \
-                    self._spde.da(a, self._time + 0.5*self._dt, w)
-            # propagate solution to t + dt
-            if self._spde.linear != 0.0:
-                self._solution[i +
-                               1] = self._linear_solver.propagate_step(2*a - a0)
-            else:
-                self._solution[i+1] = 2*a - a0
-            self._time += self._dt
+            self._solution[i+1] = self._integrator.step(
+                self._solution[i], self._spde, self._linear_solver, self._dt, average)
 
     @property
     def solution(self):
@@ -154,7 +139,7 @@ class EnsembleSolver:
         }
 
         self.sample_errors = {
-            key: np.std(b, axis=0)/sqrt(self._blocks-1) for key, b in self.means.items()
+            key: np.std(b, axis=0)/sqrt(self._blocks-1) for key, b in block_means.items()
         }
 
         self.step_errors = dict()

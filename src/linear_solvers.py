@@ -15,7 +15,7 @@ class LinearSolver(ABC):
 
 class GalerkinSolver(LinearSolver):
 
-    def __init__(self, spde, dt):
+    def __init__(self, spde):
         """Store data and precompute lots of stuff"""
         self._xs = np.linspace(1/spde.points, 1, spde.points)
         self._spde = spde
@@ -58,7 +58,11 @@ class GalerkinSolver(LinearSolver):
         # more precomputation of useful quantities
         self._d = spde.linear * np.linalg.inv(self._a) @ self._b
         self._b_inv = np.linalg.inv(self._b)
+
+    def set_timestep(self, dt):
+        self._dt = dt
         self._propagator = expm(-self._d*dt)
+        dim = len(self._d)
 
         self._s = (np.eye(dim) - self._propagator) @ self._b_inv
         self._q = self._s @ self._phi_right
@@ -110,19 +114,21 @@ class GalerkinSolver(LinearSolver):
 
 class SpectralSolver(LinearSolver):
 
-    def __init__(self, spde, dt, store_midpoint=True):
+    def __init__(self, spde, store_midpoint=False):
         self._spde = spde
-        self._dt = dt
         self._transform = Transform(
             [1, -1], spde.left, spde.right, spde.points)
         self._d = self._transform.derivative_matrix
         self._d_inv = 1/self._d
-        self._propagator = np.exp(-spde.linear*self._d*dt)
         # TODO: generalize to L != 1
         self._xs = np.linspace(1/spde.points, 1, spde.points)
         # midpoint value for theta
         self._store_midpoint = store_midpoint
         self._theta = None
+
+    def set_timestep(self, dt):
+        self._dt = dt
+        self._propagator = np.exp(-self._spde.linear*self._d*dt)
 
     def propagate_step(self, u):
         max_iters = 100

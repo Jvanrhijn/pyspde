@@ -2,6 +2,8 @@ from src.spde import *
 from src.linear_solvers import GalerkinSolver, SpectralSolver
 from src.noises import WhiteNoise
 from src.visualizer import Visualizer
+from src.integrators import *
+
 from mpl_toolkits import mplot3d
 from examples.potentials import *
 
@@ -10,13 +12,13 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 150*149
+    steps = 100
     tmax = 5
-    blocks = 16
-    samples = 128
+    blocks = 8
+    samples = 64
     processes = 4
 
-    sigma = 0.25
+    sigma = 0.1
     k = -0.5
 
     f = 1
@@ -29,11 +31,11 @@ if __name__ == "__main__":
     noise = WhiteNoise(2, points)
 
     #simple_sde = lambda a, t, w: -0.5*a*np.exp(-a**2) + 0.5*sigma*a*np.exp(-0.5*a**2)/sqrt(2)
-    spde = SPDE(coeff, geometric_brownian(points, k, sigma, f, g),
+    spde = SPDE(coeff, linear(points, k, sigma, f, g),
                 noise, points, f, g)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
-    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver)
+    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, integrator=Midpoint())
 
     ts = np.linspace(1/points, 1, points)
 
