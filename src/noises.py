@@ -36,19 +36,8 @@ class WhiteNoise:
         factor = 2 if average else 1
 
         # generate white noise process
-        # TODO: investigate wether the issues might be due to
-        # the spatial noise not being brownian motion in truth
-        
-        # generate spatially correlated noise
-        value = np.zeros((factor, self._dimension+1))
-
-        for j in range(self._dimension):
-            value[:, j+1] = value[:, j] + self._dx * self._rng.normal(
-                scale=sqrt(factor*self._variance/(self._dx*dt)))
-        self._value = np.mean(value[:, 1:], axis=0)
-
-        #self._value = np.mean(self._rng.normal(scale=sqrt(factor*self._variance/(self._dx*dt)),
-        #                                       size=(factor, self._dimension)), axis=0)
+        self._value = np.mean(self._rng.normal(scale=sqrt(factor*self._variance/(self._dx*dt)),
+                                               size=(factor, self._dimension)), axis=0)
 
         self._time = t
         return self._value

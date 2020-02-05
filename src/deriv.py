@@ -14,12 +14,10 @@ class DerivativeOperator:
         dim = len(u)
         matrix = np.zeros((dim, dim))
         if self._order == 1:
-            matrix[:-1, :-1] = np.diag(np.ones(dim-2),
-                                       k=1) - np.diag(np.ones(dim-2), k=-1)
-            matrix[0, :] = matrix[1, :]
-            matrix[-1, -1] = 2*self._dx * self._right(u[-1]) / u[-1]
-            matrix[-2, -1] = 1
-            derivative = 1/(2*self._dx) * matrix @ u
+            derivative = np.zeros(dim)
+            derivative[1:-1] = (u[2:] - u[:-2])/(2*self._dx)
+            derivative[0] = derivative[1]
+            derivative[-1] = self._right(u[-1])
         elif self._order == 2:
             raise NotImplementedError("Second-order FD not yet implemented")
             derivative = np.zeros(dim)
