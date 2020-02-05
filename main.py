@@ -12,10 +12,10 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 100_000
+    steps = 1000
     tmax = 5
     blocks = 8
-    samples = 8*blocks
+    samples = 8
     processes = 4
     space_range = (0.0, 1.0)
 
@@ -45,7 +45,7 @@ if __name__ == "__main__":
                 noise, points, f, g, space_range=space_range)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
-    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver, integrator=Midpoint())
+    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, integrator=Midpoint())
 
     ts = np.linspace(space_range[0] + 1/points, space_range[1], points)
 
@@ -55,7 +55,7 @@ if __name__ == "__main__":
             observables={
                 "value": lambda x: x,
                 "square": lambda x: x**2,
-                "energy": Integral(lambda x: 0.5*x**2, ts, 2),
+                #"energy": Integral(lambda x: 0.5*x**2, ts, 2),
             },
             blocks=blocks, 
             processes=processes, 

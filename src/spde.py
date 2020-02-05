@@ -95,20 +95,17 @@ class EnsembleSolver:
             raise ValueError(
                 "EnsembleSolver can't output logging data and progress bar")
         self._trajectory_solvers = [copy.deepcopy(
-            trajectory_solver) for _ in range(ensembles)]
+            trajectory_solver) for _ in range(ensembles*processes*blocks)]
         self._ensembles = ensembles
+        self._blocks = blocks
+        self._processes = processes
 
         # storage
         self._observables = observables
-        self._storage = np.zeros(
-            (self._ensembles, *trajectory_solver.solution.shape))
-        self._observe_data = {
-            key: f(self._storage) for key, f in self._observables.items()
+        self._block_means = {
+            key: np.zeros((blocks*processes, *trajectory_solver.solution.shape)) for key in self._observables
         }
-
-        self._blocks = blocks
-        self.step_error = np.zeros(self._storage.shape)
-        self._processes = processes
+        self._block_step_errors = copy.deepcopy(self._block_means)
 
     def solve(self):
         queue = Queue()
@@ -128,43 +125,27 @@ class EnsembleSolver:
         # retrieve the data from the queue and post-process
         self._post_process(queue)
 
-        # do blocking
-        blocks = {
-            key: list(self.chunks(data, self._blocks)) for key, data in self._observe_data.items()
-        }
-
-        block_means = {
-            key: np.mean(block, axis=0) for key, block in blocks.items()
-        }
-
         self.means = {
-            key: np.mean(bmean, axis=0) for key, bmean in block_means.items()
+            key: np.mean(bmean, axis=0) for key, bmean in self._block_means.items()
         }
 
         self.sample_errors = {
-            key: np.std(b, axis=0)/sqrt(max(1, self._blocks-1)) for key, b in block_means.items()
+            key: np.std(b, axis=0)/sqrt(max(1, self._blocks-1)) for key, b in self._block_means.items()
         }
 
-        self.step_errors = dict()
-        for key, f in self._observables.items():
-            if not isinstance(f, Integral):
-                # Very simple finite difference estimation of
-                # step size errors via interval analysis
-                self.step_errors[key] = np.mean(np.abs((f(self._storage + 0.001)
-                                                        - f(self._storage - 0.001))/0.002)*self.step_error, axis=0)
-            else:
-                # TODO: figure out step error estimation in case of
-                # observable being a functional integral
-                self.step_errors[key] = np.zeros(self.means[key].shape)
+        self.step_errors = {
+            key: np.mean(step_error, axis=0) for key, step_error in self._block_step_errors.items()
+        }
 
     def _post_process(self, queue):
         start_index = 0
         for _ in range(self._processes):
 
-            # obtain individual trajectory results from queue
+            # obtain individual block results from queue
             results = queue.get()
             results, fine_results = zip(*results)
-            results, fine_results = np.array(results), np.array(fine_results)
+            results, fine_results = list(results), list(fine_results)
+
             num_results = len(results)
 
             # calculate range in internal trajectory storage
@@ -177,34 +158,48 @@ class EnsembleSolver:
             #true_results = (1 + epsilon) * \
             #    fine_results[:, ::2] - epsilon * results
 
-            # store results
-            self._storage[r[0]:r[1]] = fine_results[:, ::2]
-            self.step_error[r[0]:r[1]] = np.abs(fine_results[:, ::2] - results[:])
-            for key, f in self._observables.items():
-                self._observe_data[key][r[0]:r[1]] = f(fine_results[:, ::2])
+            # extract block averages per observable
+            for res, fres in zip(results, fine_results):
+                for name in self._observables:
+                    self._block_means[name][r[0]:r[1]] = fres[name][::2]
+                    self._block_step_errors[name][r[0]:r[1]] = np.abs(fres[name][::2] - res[name])
 
     def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []
         start_time = datetime.now()
         self._rng.seed(seed)
-        for snr, solver in self.progress_bar(threadnr)(enumerate(solvers), total=len(solvers)):
-            if verbose:
-                print(
-                    f"Thread {threadnr+1}: solving trajectory {snr+1}/{len(solvers)}, \
-                        time = {datetime.now() - start_time}")
-            # generate seed
-            seed = self._rng.randint(0, 2**32-1)
-            solver.seed = seed
-            # for time step error estimation, copy the solver and set a finer
-            # step size
-            solver_fine = copy.deepcopy(solver)
-            solver_fine.steps = solver.steps * 2
-            # solve both the original and the fine trajectory
-            # 'average' keyword telse the coarse solver to average
-            # two subsequent fine noise terms for consisteny
-            solver.solve(average=True)
-            solver_fine.solve(average=False)
-            results.append((solver.solution, solver_fine.solution))
+        # split the solver list into blocks
+        blocks = list(self.chunks(solvers, self._blocks))
+        for bnr, block in self.progress_bar(threadnr)(enumerate(blocks), total=len(blocks)):
+            # Initialize running average for each observable
+            block_average = {
+                name: 0 for name in self._observables
+            }
+            block_average_fine = copy.deepcopy(block_average)
+            for snr, solver in enumerate(block):
+                if verbose:
+                    print(
+                        f"Thread {threadnr+1}: solving trajectory {bnr*snr + snr + 1}/{len(solvers)}, \
+                            time = {datetime.now() - start_time}")
+                # generate seed
+                seed = self._rng.randint(0, 2**32-1)
+                solver.seed = seed
+                # for time step error estimation, copy the solver and set a finer
+                # step size
+                solver_fine = copy.deepcopy(solver)
+                solver_fine.steps = solver.steps * 2
+                # solve both the original and the fine trajectory
+                # 'average' keyword telse the coarse solver to average
+                # two subsequent fine noise terms for consisteny
+                solver.solve(average=True)
+                solver_fine.solve(average=False)
+                # average over the block
+                # TODO: this formula is numerically unstable, so fix sometime
+                for name, f in self._observables.items():
+                    block_average[name] += (f(solver.solution) - block_average[name])/(snr+1)
+                    block_average_fine[name] += (f(solver_fine.solution) - block_average_fine[name])/(snr+1)
+            # put block averages in thread queue
+            results.append((block_average, block_average_fine))
         queue.put(results)
 
     def progress_bar(self, threadnr):
