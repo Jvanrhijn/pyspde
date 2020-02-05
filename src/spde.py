@@ -142,7 +142,7 @@ class EnsembleSolver:
         }
 
         self.sample_errors = {
-            key: np.std(b, axis=0)/sqrt(self._blocks-1) for key, b in block_means.items()
+            key: np.std(b, axis=0)/sqrt(max(1, self._blocks-1)) for key, b in block_means.items()
         }
 
         self.step_errors = dict()
@@ -151,7 +151,7 @@ class EnsembleSolver:
                 # Very simple finite difference estimation of
                 # step size errors via interval analysis
                 self.step_errors[key] = np.mean(np.abs((f(self._storage + 0.001)
-                                                        - f(self._storage))/0.001)*self.step_error, axis=0)
+                                                        - f(self._storage - 0.001))/0.002)*self.step_error, axis=0)
             else:
                 # TODO: figure out step error estimation in case of
                 # observable being a functional integral
@@ -172,16 +172,16 @@ class EnsembleSolver:
             start_index += num_results
 
             # perform extrapolation to small step size limit
-            order = 1
-            epsilon = 1 / (2**order - 1)
-            true_results = (1 + epsilon) * \
-                fine_results[:, ::2] - epsilon * results
+            #order = 1
+            #epsilon = 1 / (2**order - 1)
+            #true_results = (1 + epsilon) * \
+            #    fine_results[:, ::2] - epsilon * results
 
             # store results
-            self._storage[r[0]:r[1]] = true_results
-            self.step_error[r[0]:r[1]] = np.abs(fine_results[:, ::2] - results)
+            self._storage[r[0]:r[1]] = fine_results[:, ::2]
+            self.step_error[r[0]:r[1]] = np.abs(fine_results[:, ::2] - results[:])
             for key, f in self._observables.items():
-                self._observe_data[key][r[0]:r[1]] = f(true_results)
+                self._observe_data[key][r[0]:r[1]] = f(fine_results[:, ::2])
 
     def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []

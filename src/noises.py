@@ -40,13 +40,12 @@ class WhiteNoise:
         # the spatial noise not being brownian motion in truth
         
         # generate spatially correlated noise
-        value = np.zeros((2, self._dimension))
+        value = np.zeros((factor, self._dimension+1))
 
-        noise = self._rng.normal(scale=sqrt(factor*self._variance/(self._dx*dt)), size=(factor, self._dimension-1))
-        for j in range(1, self._dimension):
-            value[:, j] = value[:, j-1] + self._dx * noise[:, j-1]
-        
-        self._value = np.mean(value, axis=0)
+        for j in range(self._dimension):
+            value[:, j+1] = value[:, j] + self._dx * self._rng.normal(
+                scale=sqrt(factor*self._variance/(self._dx*dt)))
+        self._value = np.mean(value[:, 1:], axis=0)
 
         #self._value = np.mean(self._rng.normal(scale=sqrt(factor*self._variance/(self._dx*dt)),
         #                                       size=(factor, self._dimension)), axis=0)

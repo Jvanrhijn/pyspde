@@ -11,22 +11,22 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 10
-    steps = 100
+    points = 30
+    steps = 500
     tmax = 5
-    blocks = 80
-    samples = blocks*4
+    blocks = 16
+    samples = 8*blocks
     processes = 4
     space_range = (0.0, 1.0)
 
-    sigma = 0.5
+    sigma = 1
     k = -1
 
     f = 1
-    #g = lambda u: (k - 0.5*sigma**2)*u
+    g = lambda u: (k - sigma**2)*u
     #g = lambda u: k*u
     #gderiv = lambda u: k - sigma**2
-    g = lambda u: -0.5*sigma*u*np.exp(-u**2)
+    #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
     #gderiv = None
 
     u0 = np.ones(points)
@@ -34,8 +34,9 @@ if __name__ == "__main__":
 
     #da = linmult_arnold(points, k, sigma, f, g)
     #da = lambda a, t, w: sigma*w
-    #da = linear(points, k, sigma, f, g)
-    da = gaussian_arnold(points, k, sigma, f, g)
+    #da = geometric_brownian(points, k, sigma, f, g)
+    #da = gaussian_arnold(points, k, sigma, f, g)
+    da = linear(points, k, sigma, f, g)
 
     spde = SPDE(coeff, da,
                 noise, points, f, g, space_range=space_range)
@@ -57,16 +58,13 @@ if __name__ == "__main__":
             processes=processes, 
             verbose=False, 
             pbar=True, 
-            seed=0
+            seed=1
     )
 
     ensemble_solver.solve()
 
     mean = ensemble_solver.means["value"]
     square = ensemble_solver.means["square"]
-
-    plt.figure()
-    plt.plot(ensemble_solver._storage[0, -1, :])
 
     step_errors = ensemble_solver.step_errors["value"]
     sample_errors = ensemble_solver.sample_errors["value"]
@@ -84,9 +82,12 @@ if __name__ == "__main__":
                       sample_error=ensemble_solver.sample_errors["square"],
                       step_error=ensemble_solver.step_errors["square"])
 
-    mesh_points = min([10, points, steps])
+    mesh_points = min([30, points, steps])
     fig, ax = vis.surface(cstride=points//mesh_points,
                           rstride=steps//mesh_points)
+    #fig, ax = vis.surface(cstride=1,
+    #                      rstride=30)
+
     ts = vis.xaxis
 
     fig2, ax2 = vis.steady_state(
@@ -103,10 +104,10 @@ if __name__ == "__main__":
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.plot(ts,
-             f**2*np.exp(2*k*ts),
+             #f**2*np.exp(2*k*ts),
              #f*np.exp((2*k + sigma**2)*ts),
-             #(f + sigma**2/(2*k+sigma**2)) *
-             #np.exp((2*k + sigma**2)*ts) - sigma**2/(2*k + sigma**2),
+             (f + sigma**2/(2*k+sigma**2)) *
+             np.exp((2*k + sigma**2)*ts) - sigma**2/(2*k + sigma**2),
              label=r"Analytical, $B = \sigma\sqrt{1 + \phi^2}$")
 
 #
