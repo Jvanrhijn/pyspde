@@ -56,3 +56,7 @@ class Visualizer:
     @property
     def xaxis(self):
         return self._xs
+
+    @property
+    def taxis(self):
+        return self._ts

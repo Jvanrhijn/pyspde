@@ -73,13 +73,18 @@ class GalerkinSolver(LinearSolver):
         self._qphi = np.outer(self._q, self._phi_right)
 
     def propagate_step(self, function):
+        fields = function.shape[0]
         if self._spde.linear == 0:
             # do nothing if the linear part is zero
             return function 
-        fem = self._sol_to_fem @ (function - self._spde.left)
-        fem0 = fem
-        fem = self.newton_iterate(fem, fem0)
-        return self._spde.left + self._fem_to_sol @ fem
+        propagated_field = np.zeros(function.shape)
+        for field in range(fields):
+            fem = self._sol_to_fem @ (function[field] - self._spde.left)
+            fem0 = fem
+            fem = self.newton_iterate(fem, fem0)
+            propagated_field[field] = self._spde.left + self._fem_to_sol @ fem
+        return propagated_field
+        #return self._spde.left + self._fem_to_sol @ fem
 
     def inverse_jacobian(self, function):
         gprime = self._gderiv(self._spde.left + function @ self._phi_right)

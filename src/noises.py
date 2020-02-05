@@ -15,8 +15,13 @@ class Noise(ABC):
 
 class WhiteNoise:
 
-    def __init__(self, variance, dimension, seed=None):
-        self._variance = variance
+    def __init__(self, covariance, dimension, fields=1, seed=None):
+        self._fields = fields
+        if isinstance(covariance, np.ndarray):
+            self._covariance = covariance
+        else:
+            self._covariance = np.eye(fields)*covariance
+        #self._variance = variance
         self._dimension = dimension
         # TODO: generalize to L != 1
         self._dx = 1/dimension
@@ -36,11 +41,17 @@ class WhiteNoise:
         factor = 2 if average else 1
 
         # generate white noise process
-        self._value = np.mean(self._rng.normal(scale=sqrt(factor*self._variance/(self._dx*dt)),
+        if self._fields > 1:
+            self._value = np.mean(self._rng.multivariate_normal(np.zeros(self._fields), self._covariance*factor/(self._dx*dt),
                                                size=(factor, self._dimension)), axis=0)
+        else:
+            # sampling from 1D normal distribution is likely faster,
+            # so do that if there's only one field
+            self._value = np.mean(self._rng.normal(scale=sqrt(factor*self._covariance[0]/(self._dx*dt)),
+                                                size=(factor, self._dimension)), axis=0)
 
         self._time = t
-        return self._value
+        return self._value.T
 
     @property
     def seed(self):

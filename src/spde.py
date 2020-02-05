@@ -36,21 +36,24 @@ class SPDE:
 
 class TrajectorySolver:
 
-    def __init__(self, spde, steps, tmax, initial, linear_solver, integrator=Midpoint()):
+    def __init__(self, spde, steps, tmax, initial, linear_solver, fields=1, integrator=Midpoint()):
         self._spde = spde
+        self._fields = fields
         self._tmax = tmax
         self._steps = steps
         self._dt = tmax/steps
         self._dx = (spde.space_range[1] - spde.space_range[0])/spde.points
         self._xs = np.linspace(spde.space_range[0] + self._dx, spde.space_range[1], spde.points)
+        if initial.shape[0] != fields:
+            raise ValueError("Initial condition does not match number of fields")
         self._initial = initial
         self._integrator = integrator
         # linear solver should propagate half time-step for MP algorithm
         self._linsolve_type = linear_solver
         self._linear_solver = linear_solver(spde)
         self._linear_solver.set_timestep(self._dt / integrator.ipsteps())
-        self._solution = np.zeros((steps+1, spde.points))
-        self._solution[0] = initial
+        self._solution = np.zeros((fields, steps+1, spde.points))
+        self._solution[:, 0, :] = initial
         self._time = 0
 
     @property
@@ -61,15 +64,15 @@ class TrajectorySolver:
     def steps(self, steps):
         self._steps = steps
         self._dt = self._tmax / steps
-        initial = self._solution[0]
-        self._solution = np.zeros((steps+1, self._spde.points))
-        self._solution[0] = initial
+        initial = self._solution[:, 0, :]
+        self._solution = np.zeros((self._fields, steps+1, self._spde.points))
+        self._solution[:, 0, :] = initial
         self._linear_solver.set_timestep(self._dt/2)
 
     def solve(self, average=False):
         for i in range(self._steps):
-            self._solution[i+1] = self._integrator.step(
-                self._solution[i], self._spde, self._linear_solver, self._dt, average)
+            self._solution[:, i+1] = self._integrator.step(
+                self._solution[:, i], self._spde, self._linear_solver, self._dt, average)
 
     @property
     def solution(self):
@@ -164,8 +167,8 @@ class EnsembleSolver:
             # extract block averages per observable
             for res, fres in zip(results, fine_results):
                 for name in self._observables:
-                    self._block_means[name][r[0]:r[1]] = fres[name][::2]
-                    self._block_step_errors[name][r[0]:r[1]] = np.abs(fres[name][::2] - res[name])
+                    self._block_means[name][r[0]:r[1]] = fres[name][:, ::2]
+                    self._block_step_errors[name][r[0]:r[1]] = np.abs(fres[name][:, ::2] - res[name])
 
     def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []

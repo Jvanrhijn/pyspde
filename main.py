@@ -11,16 +11,18 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 30
-    steps = 10_000
+    points = 10
+    steps = 1000
     tmax = 5
-    blocks = 4
-    samples = 8
+    blocks = 10
+    samples = 1
     processes = 4
     space_range = (0.0, 1.0)
 
-    sigma = 0.5
-    k = -0.5
+    sigma = 0.1
+    k = -1
+
+    fields = 2
 
     f = 1
     #g = lambda u: (k - sigma**2)*u
@@ -32,22 +34,31 @@ if __name__ == "__main__":
     #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
     #gderiv = None
 
-    u0 = np.ones(points)*0
-    noise = WhiteNoise(2, points)
+    u0 = np.ones((fields, points))
+    noise = WhiteNoise(1, points, fields=fields)
 
     d1 = DerivativeOperator(1, 1/points, f, g)
 
-    da = linmult_arnold(points, k, sigma, f, g)
+    #da = linmult_arnold(points, k, sigma, f, g)
     #da = lambda a, t, w: sigma*w
     #da = geometric_brownian(points, k, sigma, f, g)
     #da = gaussian_arnold(points, k, sigma, f, g)
-    #da = linear(points, k, sigma, f, g)
+    da = linear(points, k, sigma, f, g)
+    #da = lambda a, t, w: k*a + sigma*a*w
+
+    def da(a, t, w):
+        field1 = a[0]
+        field2 = a[1]
+        return np.array([
+            linear(points, k, sigma, f, g)(a[0], t, w[0]),
+            geometric_brownian(points, k, sigma, f, g)(a[1], t, w[1]),
+        ])
 
     spde = SPDE(coeff, da,
                 noise, points, f, g, right_deriv=gderiv, space_range=space_range)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
-    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, integrator=Midpoint())
+    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, fields=fields, integrator=Midpoint())
 
     ts = np.linspace(space_range[0] + 1/points, space_range[1], points)
 
@@ -57,7 +68,7 @@ if __name__ == "__main__":
             observables={
                 "value": lambda x: x,
                 "square": lambda x: x**2,
-                "energy": Integral(lambda x: 0.5*x**2, ts, 1),
+                #"energy": Integral(lambda x: 0.5*x**2, ts, 1),
             },
             blocks=blocks, 
             processes=processes, 
@@ -67,14 +78,10 @@ if __name__ == "__main__":
     )
 
     ensemble_solver.solve()
+    field = 1
 
-    plt.figure()
-    taus = np.linspace(0, tmax, steps+1)
-    plt.errorbar(taus, ensemble_solver.means["energy"], yerr=ensemble_solver.step_errors["energy"])
-    plt.grid()
-
-    mean = ensemble_solver.means["value"]
-    square = ensemble_solver.means["square"]
+    mean = ensemble_solver.means["value"][field]
+    square = ensemble_solver.means["square"][field]
 
     step_errors = ensemble_solver.step_errors["value"]
     sample_errors = ensemble_solver.sample_errors["value"]
@@ -83,11 +90,11 @@ if __name__ == "__main__":
     print(f"Max sample error = {sample_errors.max()}")
 
     vis = Visualizer(mean, (0, tmax), space_range,
-                     sample_error=ensemble_solver.sample_errors["value"],
-                     step_error=ensemble_solver.step_errors["value"])
+                     sample_error=ensemble_solver.sample_errors["value"][field],
+                     step_error=ensemble_solver.step_errors["value"][field])
     vis2 = Visualizer(square, (0, tmax), space_range,
-                      sample_error=ensemble_solver.sample_errors["square"],
-                      step_error=ensemble_solver.step_errors["square"])
+                      sample_error=ensemble_solver.sample_errors["square"][field],
+                      step_error=ensemble_solver.step_errors["square"][field])
 
     mesh_points = min([30, points, steps])
     fig, ax = vis.surface(cstride=points//mesh_points,
