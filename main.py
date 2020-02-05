@@ -12,9 +12,9 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 50_000
+    steps = 10_000
     tmax = 5
-    blocks = 8
+    blocks = 4
     samples = 8
     processes = 4
     space_range = (0.0, 1.0)
@@ -23,7 +23,9 @@ if __name__ == "__main__":
     k = -0.5
 
     f = 1
-    g = lambda u: (k - sigma**2)*u
+    #g = lambda u: (k - sigma**2)*u
+    g = lambda u: k*u
+    gderiv = lambda u: k
     #g = lambda u: 0
     #g = lambda u: k*u
     #gderiv = lambda u: k - sigma**2
@@ -35,14 +37,14 @@ if __name__ == "__main__":
 
     d1 = DerivativeOperator(1, 1/points, f, g)
 
-    #da = linmult_arnold(points, k, sigma, f, g)
+    da = linmult_arnold(points, k, sigma, f, g)
     #da = lambda a, t, w: sigma*w
     #da = geometric_brownian(points, k, sigma, f, g)
     #da = gaussian_arnold(points, k, sigma, f, g)
-    da = linear(points, k, sigma, f, g)
+    #da = linear(points, k, sigma, f, g)
 
     spde = SPDE(coeff, da,
-                noise, points, f, g, space_range=space_range)
+                noise, points, f, g, right_deriv=gderiv, space_range=space_range)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
     solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, integrator=Midpoint())
@@ -67,7 +69,9 @@ if __name__ == "__main__":
     ensemble_solver.solve()
 
     plt.figure()
-    plt.plot(ensemble_solver.means["energy"])
+    taus = np.linspace(0, tmax, steps+1)
+    plt.errorbar(taus, ensemble_solver.means["energy"], yerr=ensemble_solver.step_errors["energy"])
+    plt.grid()
 
     mean = ensemble_solver.means["value"]
     square = ensemble_solver.means["square"]
