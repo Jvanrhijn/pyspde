@@ -54,8 +54,6 @@ class GalerkinSolver(LinearSolver):
         self._b[-1, -1] = 1
         for i in range(dim):
             for j in range(dim):
-                #self._a[i, j] = quad(lambda x: self._basis_spectral[j](x)*self._basis_spectral[i](x), *self._range)[0]
-                #self._b[i, j] = quad(lambda x: self._basis_spectral_deriv[j](x)*self._basis_spectral_deriv[i](x), *self._range)[0]
                 phi[i, j] = self._basis_spectral[j](self._xs[i])
 
         self._fem_to_sol = phi

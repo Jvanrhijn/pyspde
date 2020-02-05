@@ -12,14 +12,14 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 1000
+    steps = 50_000
     tmax = 5
     blocks = 8
     samples = 8
     processes = 4
     space_range = (0.0, 1.0)
 
-    sigma = 0.1
+    sigma = 0.5
     k = -0.5
 
     f = 1
@@ -35,11 +35,11 @@ if __name__ == "__main__":
 
     d1 = DerivativeOperator(1, 1/points, f, g)
 
-    da = linmult_arnold(points, k, sigma, f, g)
+    #da = linmult_arnold(points, k, sigma, f, g)
     #da = lambda a, t, w: sigma*w
     #da = geometric_brownian(points, k, sigma, f, g)
     #da = gaussian_arnold(points, k, sigma, f, g)
-    #da = linear(points, k, sigma, f, g)
+    da = linear(points, k, sigma, f, g)
 
     spde = SPDE(coeff, da,
                 noise, points, f, g, space_range=space_range)
@@ -55,16 +55,19 @@ if __name__ == "__main__":
             observables={
                 "value": lambda x: x,
                 "square": lambda x: x**2,
-                #"energy": Integral(lambda x: 0.5*x**2, ts, 2),
+                "energy": Integral(lambda x: 0.5*x**2, ts, 1),
             },
             blocks=blocks, 
             processes=processes, 
-            verbose=False, 
-            pbar=True, 
+            verbose=True, 
+            pbar=False, 
             seed=1
     )
 
     ensemble_solver.solve()
+
+    plt.figure()
+    plt.plot(ensemble_solver.means["energy"])
 
     mean = ensemble_solver.means["value"]
     square = ensemble_solver.means["square"]
@@ -74,9 +77,6 @@ if __name__ == "__main__":
 
     print(f"Max step error =   {step_errors.max()}")
     print(f"Max sample error = {sample_errors.max()}")
-
-    plt.figure()
-    plt.plot(np.linspace(0, tmax, steps+1), ensemble_solver.means["value"][:, 0])
 
     vis = Visualizer(mean, (0, tmax), space_range,
                      sample_error=ensemble_solver.sample_errors["value"],

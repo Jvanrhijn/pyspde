@@ -102,8 +102,11 @@ class EnsembleSolver:
 
         # storage
         self._observables = observables
+        # hacky way to get proper dimensions for integral observables
         self._block_means = {
-            key: np.zeros((blocks*processes, *trajectory_solver.solution.shape)) for key in self._observables
+            key: (np.zeros((blocks*processes, *trajectory_solver.solution.shape)) if not isinstance(f, Integral)
+            else np.zeros((blocks*processes, *(f(trajectory_solver.solution).shape))))
+                for key, f in self._observables.items()
         }
         self._block_step_errors = copy.deepcopy(self._block_means)
 
@@ -170,16 +173,18 @@ class EnsembleSolver:
         self._rng.seed(seed)
         # split the solver list into blocks
         blocks = list(self.chunks(solvers, self._blocks))
-        for bnr, block in self.progress_bar(threadnr)(enumerate(blocks), total=len(blocks)):
+        trajectory = 0
+        for block in self.progress_bar(threadnr)(blocks):
             # Initialize running average for each observable
             block_average = {
                 name: 0 for name in self._observables
             }
             block_average_fine = copy.deepcopy(block_average)
             for snr, solver in enumerate(block):
+                trajectory += 1
                 if verbose:
                     print(
-                        f"Thread {threadnr+1}: solving trajectory {bnr*snr + snr + 1}/{len(solvers)}, \
+                        f"Thread {threadnr+1}: solving trajectory {trajectory}/{len(solvers)}, \
                             time = {datetime.now() - start_time}")
                 # generate seed
                 seed = self._rng.randint(0, 2**32-1)
