@@ -10,9 +10,6 @@ class DerivativeOperator:
         self._right = right
 
     def __call__(self, u):
-        # TODO Improve this
-        dim = len(u)
-        matrix = np.zeros((dim, dim))
         fields = u.shape[0]
         if self._order == 1:
             derivative = np.zeros(u.shape)

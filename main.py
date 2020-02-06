@@ -11,8 +11,8 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 10
-    steps = 1000
+    points = 30
+    steps = 100
     tmax = 5
     blocks = 8
     samples = 8
@@ -22,17 +22,18 @@ if __name__ == "__main__":
     sigma = 0.1
     k = -1
 
-    fields = 2
+    fields = 1
 
-    f = [1, 1]
+    f = [1]
+    g = [lambda u: k*u]
+
     #g = lambda u: (k - sigma**2)*u
-    #g = lambda u: k*u
     #gderiv = lambda u: k
     #g = lambda u: 0
     #g = lambda u: k*u
     #gderiv = lambda u: k - sigma**2
-    # TODO: for more fields, provide array of boundaries
-    g = [lambda u: -0.5*sigma*u*np.exp(-u**2)]*2
+    #g = [lambda u: -0.5*sigma*u*np.exp(-u**2)]
+
     gderiv = None
 
     u0 = np.ones((fields, points))
@@ -46,19 +47,12 @@ if __name__ == "__main__":
     da = gaussian_arnold(points, k, sigma, f, g)
     #da = linear(points, k, sigma, f, g)
     #da = lambda a, t, w: k*a + sigma*a*w
-    def test_da(a, t, w):
-        field1 = a[0].reshape((1, len(a[0])))
-        field2 = a[1].reshape((1, len(a[1])))
-        return np.array([
-            [-d1(field1)*d1(field2) + sigma*w[0]],
-            [-d1(field1)*d1(field2) + sigma*w[1]]
-        ]).reshape(a.shape)
 
-    spde = SPDE(coeff, test_da,
+    spde = SPDE(coeff, linear(points, k, sigma, f, g),
                 noise, points, f, g, right_deriv=gderiv, space_range=space_range)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
-    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, fields=fields, integrator=Midpoint())
+    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver, fields=fields, integrator=Midpoint())
 
     ts = np.linspace(space_range[0] + 1/points, space_range[1], points)
 
@@ -78,7 +72,7 @@ if __name__ == "__main__":
     )
 
     ensemble_solver.solve()
-    field = 1
+    field = 0
 
     mean = ensemble_solver.means["value"][field]
     square = ensemble_solver.means["square"][field]
