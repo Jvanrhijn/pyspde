@@ -30,7 +30,7 @@ class SPDE:
         if right_deriv is not None:
             self.right_deriv = right_deriv
         else:
-            self.right_deriv = lambda u: (right(u + 0.001) - right(u))/0.001
+            self.right_deriv = [lambda u: (g(u + 0.001) - g(u))/0.001 for g in right]
         self.points = points
 
 

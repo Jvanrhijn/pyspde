@@ -79,44 +79,45 @@ class GalerkinSolver(LinearSolver):
             return function 
         propagated_field = np.zeros(function.shape)
         for field in range(fields):
-            fem = self._sol_to_fem @ (function[field] - self._spde.left)
+            fem = self._sol_to_fem @ (function[field] - self._spde.left[field])
             fem0 = fem
-            fem = self.newton_iterate(fem, fem0)
-            propagated_field[field] = self._spde.left + self._fem_to_sol @ fem
+            fem = self.newton_iterate(fem, fem0, field)
+            propagated_field[field] = self._spde.left[field] + self._fem_to_sol @ fem
         return propagated_field
         #return self._spde.left + self._fem_to_sol @ fem
 
-    def inverse_jacobian(self, function):
-        gprime = self._gderiv(self._spde.left + function @ self._phi_right)
+    def inverse_jacobian(self, function, field_index):
+        gprime = self._gderiv[field_index](self._spde.left[field_index] + function @ self._phi_right)
         return -(np.eye(self._spde.points) \
             + gprime * self._qphi / (1 - gprime * self._phi_right @ self._q))
 
-    def G(self, function):
-        return self._spde.right(self._spde.left + function @ self._phi_right)*self._phi_right
+    def G(self, function, field_index):
+        return self._spde.right[field_index](self._spde.left[field_index] \
+            + function @ self._phi_right)*self._phi_right
 
-    def fixed_point_iterate(self, x, v0, it_max=100, tolerance=1e-10):
+    def fixed_point_iterate(self, x, v0, field_index, it_max=100, tolerance=1e-10):
         for it in range(it_max):
             x_old = x
-            x = self._contract(x, v0)
+            x = self._contract(x, v0, field_index)
             if np.linalg.norm(x - x_old) < tolerance:
                 break
             if it == it_max-1:
                 raise Warning("maximum Newton iterations reached")
         return x
 
-    def newton_iterate(self, x, v0, it_max=100, tolerance=1e-10):
+    def newton_iterate(self, x, v0, field_index, it_max=100, tolerance=1e-10):
         for it in range(it_max):
             x_old = x
-            x = x - self.inverse_jacobian(x) @ (self._contract(x, v0) - x)
+            x = x - self.inverse_jacobian(x, field_index) @ (self._contract(x, v0, field_index) - x)
             if np.linalg.norm(x - x_old) < tolerance:
                 break
             if it == it_max-1:
                 raise Warning("maximum Newton iterations reached")
         return x
 
-    def _contract(self, v, v0):
+    def _contract(self, v, v0, field_index):
         prop = self._propagator
-        return (np.eye(self._spde.points) - prop) @ self._b_inv @ self.G(v)\
+        return (np.eye(self._spde.points) - prop) @ self._b_inv @ self.G(v, field_index)\
             + prop @ v0
 
     def _basis_sine(self, n, x):

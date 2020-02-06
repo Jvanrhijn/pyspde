@@ -14,8 +14,8 @@ if __name__ == "__main__":
     points = 10
     steps = 1000
     tmax = 5
-    blocks = 10
-    samples = 1
+    blocks = 8
+    samples = 8
     processes = 4
     space_range = (0.0, 1.0)
 
@@ -24,37 +24,37 @@ if __name__ == "__main__":
 
     fields = 2
 
-    f = 1
+    f = [1, 1]
     #g = lambda u: (k - sigma**2)*u
-    g = lambda u: k*u
-    gderiv = lambda u: k
+    #g = lambda u: k*u
+    #gderiv = lambda u: k
     #g = lambda u: 0
     #g = lambda u: k*u
     #gderiv = lambda u: k - sigma**2
-    #g = lambda u: -0.5*sigma*u*np.exp(-u**2)
-    #gderiv = None
+    # TODO: for more fields, provide array of boundaries
+    g = [lambda u: -0.5*sigma*u*np.exp(-u**2)]*2
+    gderiv = None
 
     u0 = np.ones((fields, points))
-    noise = WhiteNoise(1, points, fields=fields)
+    noise = WhiteNoise(2, points, fields=fields)
 
     d1 = DerivativeOperator(1, 1/points, f, g)
 
     #da = linmult_arnold(points, k, sigma, f, g)
     #da = lambda a, t, w: sigma*w
     #da = geometric_brownian(points, k, sigma, f, g)
-    #da = gaussian_arnold(points, k, sigma, f, g)
-    da = linear(points, k, sigma, f, g)
+    da = gaussian_arnold(points, k, sigma, f, g)
+    #da = linear(points, k, sigma, f, g)
     #da = lambda a, t, w: k*a + sigma*a*w
-
-    def da(a, t, w):
-        field1 = a[0]
-        field2 = a[1]
+    def test_da(a, t, w):
+        field1 = a[0].reshape((1, len(a[0])))
+        field2 = a[1].reshape((1, len(a[1])))
         return np.array([
-            linear(points, k, sigma, f, g)(a[0], t, w[0]),
-            geometric_brownian(points, k, sigma, f, g)(a[1], t, w[1]),
-        ])
+            [-d1(field1)*d1(field2) + sigma*w[0]],
+            [-d1(field1)*d1(field2) + sigma*w[1]]
+        ]).reshape(a.shape)
 
-    spde = SPDE(coeff, da,
+    spde = SPDE(coeff, test_da,
                 noise, points, f, g, right_deriv=gderiv, space_range=space_range)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
@@ -118,9 +118,9 @@ if __name__ == "__main__":
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.plot(ts,
-    #         #f**2*np.exp(2*k*ts),
-    #         #f*np.exp((2*k + sigma**2)*ts),
-             (f + sigma**2/(2*k+sigma**2)) *
+    #         #f[field]**2*np.exp(2*k*ts),
+    #         #f[field]*np.exp((2*k + sigma**2)*ts),
+             (f[field] + sigma**2/(2*k+sigma**2)) *
              np.exp((2*k + sigma**2)*ts) - sigma**2/(2*k + sigma**2),
              label=r"Analytical, $B = \sigma\sqrt{1 + \phi^2}$")
 
