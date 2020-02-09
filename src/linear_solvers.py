@@ -23,7 +23,6 @@ class GalerkinSolver(LinearSolver):
         self._spde = spde
         self._gderiv = spde.right_deriv
 
-
         # assume sine basis, we'll generalize later
         self._basis_spectral = [partial(self._basis_sine, n)
                                 for n in range(1, spde.points)]\

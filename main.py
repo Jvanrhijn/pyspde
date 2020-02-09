@@ -12,14 +12,14 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 100
+    steps = 1000
     tmax = 5
-    blocks = 8
-    samples = 8
-    processes = 4
+    blocks = 1
+    samples = 1
+    processes = 1
     space_range = (0.0, 1.0)
 
-    sigma = 0.1
+    sigma = 0.5
     k = -1
 
     fields = 1
@@ -44,15 +44,18 @@ if __name__ == "__main__":
     #da = linmult_arnold(points, k, sigma, f, g)
     #da = lambda a, t, w: sigma*w
     #da = geometric_brownian(points, k, sigma, f, g)
-    da = gaussian_arnold(points, k, sigma, f, g)
-    #da = linear(points, k, sigma, f, g)
+    #da = gaussian_arnold(points, k, sigma, f, g)
+    da = linear(points, k, sigma, f, g)
     #da = lambda a, t, w: k*a + sigma*a*w
+    #da = lambda a, t, w: k*np.ones(a.shape) + sigma*w
+    #da = lambda a, t, w: k*a + sigma*a*w
+    #da = lambda a, t, w: np.zeros(a.shape) + sigma*sqrt(2)*w
 
-    spde = SPDE(coeff, linear(points, k, sigma, f, g),
+    spde = SPDE(coeff, da,
                 noise, points, f, g, right_deriv=gderiv, space_range=space_range)
 
     #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
-    solver = TrajectorySolver(spde, steps, tmax, u0, SpectralSolver, fields=fields, integrator=Midpoint())
+    solver = TrajectorySolver(spde, steps, tmax, u0, GalerkinSolver, fields=fields, integrator=Midpoint())
 
     ts = np.linspace(space_range[0] + 1/points, space_range[1], points)
 
@@ -68,17 +71,26 @@ if __name__ == "__main__":
             processes=processes, 
             verbose=True, 
             pbar=False, 
-            seed=1
+            seed=1,
+            check=True,
     )
 
     ensemble_solver.solve()
     field = 0
+
 
     mean = ensemble_solver.means["value"][field]
     square = ensemble_solver.means["square"][field]
 
     step_errors = ensemble_solver.step_errors["value"]
     sample_errors = ensemble_solver.sample_errors["value"]
+
+    np.save("mean", mean)
+    np.save("square", square)
+    np.save("mean_step_error", step_errors)
+    np.save("mean_sample_erorr", sample_errors)
+    np.save("square_step_error", ensemble_solver.step_errors["square"])
+    np.save("square_sample_error", ensemble_solver.sample_errors["square"])
 
     print(f"Max step error =   {step_errors.max()}")
     print(f"Max sample error = {sample_errors.max()}")
@@ -112,10 +124,10 @@ if __name__ == "__main__":
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.plot(ts,
-    #         #f[field]**2*np.exp(2*k*ts),
-    #         #f[field]*np.exp((2*k + sigma**2)*ts),
-             (f[field] + sigma**2/(2*k+sigma**2)) *
-             np.exp((2*k + sigma**2)*ts) - sigma**2/(2*k + sigma**2),
+             #f[field]**2*np.exp(2*k*ts),
+             f[field]*np.exp((2*k + sigma**2)*ts),
+    #         (f[field] + sigma**2/(2*k+sigma**2)) *
+    #         np.exp((2*k + sigma**2)*ts) - sigma**2/(2*k + sigma**2),
              label=r"Analytical, $B = \sigma\sqrt{1 + \phi^2}$")
 
 #

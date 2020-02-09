@@ -36,7 +36,7 @@ class SPDE:
 
 class TrajectorySolver:
 
-    def __init__(self, spde, steps, tmax, initial, linear_solver, fields=1, integrator=Midpoint()):
+    def __init__(self, spde, steps, tmax, initial, linear_solver, fields=1, integrator=None):
         self._spde = spde
         self._fields = fields
         self._tmax = tmax
@@ -47,7 +47,8 @@ class TrajectorySolver:
         if initial.shape[0] != fields:
             raise ValueError("Initial condition does not match number of fields")
         self._initial = initial
-        self._integrator = integrator
+        self._integrator = Midpoint(self._dt) if integrator is None else integrator
+        self._integrator.set_timestep(self._dt)
         # linear solver should propagate half time-step for MP algorithm
         self._linsolve_type = linear_solver
         self._linear_solver = linear_solver(spde)
@@ -68,11 +69,12 @@ class TrajectorySolver:
         self._solution = np.zeros((self._fields, steps+1, self._spde.points))
         self._solution[:, 0, :] = initial
         self._linear_solver.set_timestep(self._dt/2)
+        self._integrator.set_timestep(self._dt/2)
 
     def solve(self, average=False):
         for i in range(self._steps):
             self._solution[:, i+1] = self._integrator.step(
-                self._solution[:, i], self._spde, self._linear_solver, self._dt, average)
+                self._solution[:, i], self._spde, self._linear_solver, average)
 
     @property
     def solution(self):
@@ -90,7 +92,8 @@ class TrajectorySolver:
 class EnsembleSolver:
 
     def __init__(self, trajectory_solver, ensembles, observables=dict(),
-                 blocks=2, processes=1, verbose=True, pbar=False, seed=None):
+                 blocks=2, processes=1, verbose=True, pbar=False, seed=None, check=True):
+        self._check = check
         self._verbose = verbose
         self._pbar = pbar
         self._rng = random.Random(seed)
@@ -167,8 +170,9 @@ class EnsembleSolver:
             # extract block averages per observable
             for res, fres in zip(results, fine_results):
                 for name in self._observables:
-                    self._block_means[name][r[0]:r[1]] = fres[name][:, ::2]
-                    self._block_step_errors[name][r[0]:r[1]] = np.abs(fres[name][:, ::2] - res[name])
+                    self._block_means[name][r[0]:r[1]] = fres[name][:, ::2] if self._check else res[name]
+                    if self._check:
+                        self._block_step_errors[name][r[0]:r[1]] = np.abs(fres[name][:, ::2] - res[name])
 
     def solve_trajectory(self, queue, threadnr, seed, solvers, verbose):
         results = []
@@ -194,18 +198,21 @@ class EnsembleSolver:
                 solver.seed = seed
                 # for time step error estimation, copy the solver and set a finer
                 # step size
-                solver_fine = copy.deepcopy(solver)
-                solver_fine.steps = solver.steps * 2
+                if self._check:
+                    solver_fine = copy.deepcopy(solver)
+                    solver_fine.steps = solver.steps * 2
                 # solve both the original and the fine trajectory
                 # 'average' keyword telse the coarse solver to average
                 # two subsequent fine noise terms for consisteny
-                solver.solve(average=True)
-                solver_fine.solve(average=False)
+                solver.solve(average=self._check)
+                if self._check:
+                    solver_fine.solve(average=False)
                 # average over the block
                 # TODO: this formula is numerically unstable, so fix sometime
                 for name, f in self._observables.items():
                     block_average[name] += (f(solver.solution) - block_average[name])/(snr+1)
-                    block_average_fine[name] += (f(solver_fine.solution) - block_average_fine[name])/(snr+1)
+                    if self._check:
+                        block_average_fine[name] += (f(solver_fine.solution) - block_average_fine[name])/(snr+1)
             # put block averages in thread queue
             results.append((block_average, block_average_fine))
         queue.put(results)

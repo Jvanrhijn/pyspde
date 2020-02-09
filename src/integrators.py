@@ -4,12 +4,16 @@ import numpy as nump
 
 class Integrator(ABC):
 
-    def __init__(self):
+    def __init__(self, time_step):
         self._time = 0
+        self._time_step = time_step
 
     @abstractmethod
-    def step(self, field, noise, linsolve, time_step, average=False):
+    def step(self, field, noise, linsolve, average=False):
         raise NotImplementedError()
+
+    def set_timestep(self, dt):
+        self._time_step = dt
 
     def ipsteps(self):
         return 1
@@ -23,8 +27,9 @@ class Midpoint(Integrator):
     def ipsteps(self):
         return 2
 
-    def step(self, field, spde, linsolve, time_step, average=False):
+    def step(self, field, spde, linsolve, average=False):
         # propagate solution to t + dt/2
+        time_step = self._time_step
         a0 = linsolve.propagate_step(field)
         a = a0
         # perform midpoint iteration
@@ -39,7 +44,8 @@ class Midpoint(Integrator):
 
 class RK2(Integrator):
 
-    def step(self, field, spde, linsolve, time_step, average=False):
+    def step(self, field, spde, linsolve, average=False):
+        time_step = self._time_step
         field_bar = linsolve.propagate_step(field)
         w1 = spde.noise(self._time, average=average)
         d1 = time_step * linsolve.propagate_step(spde.da(field, self._time, w1))
@@ -54,9 +60,10 @@ class RK4(Integrator):
     def ipsteps(self):
         return 2
 
-    def step(self, field, spde, linsolve, time_step, average=False):
+    def step(self, field, spde, linsolve, average=False):
+        time_step = self._time_step
         field_bar = linsolve.propagate_step(field)
-        w1 = spde.noise(self._time, average=average)
+        w1 = spde.noise(self._time, average=average).T
         d1 = 0.5*time_step*linsolve.propagate_step(spde.da(field, self._time, w1))
         w2 = spde.noise(self._time + 0.5*time_step)
         d2 = 0.5*time_step*spde.da(field_bar + d1, self._time + 0.5*time_step, w2)
