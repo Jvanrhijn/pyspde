@@ -4,15 +4,15 @@ import numpy as np
 
 class Visualizer:
 
-    def __init__(self, solution, trange, srange, sample_error=None, step_error=None):
+    def __init__(self, solution, trange, lattice, sample_error=None, step_error=None):
         self._solution = solution
         self._sample_error = sample_error
         self._step_error = step_error
         self._trange = trange
-        self._srange = srange
+        self._srange = lattice.range
         steps, points = solution.shape
-        dx = (srange[1] - srange[0])/points
-        self._xs = np.linspace(self._srange[0] + dx, self._srange[1], points)
+        dx = lattice.increment
+        self._xs = lattice.points
         self._ts = np.linspace(*self._trange, steps)
 
     def surface(self, *args, **kwargs):

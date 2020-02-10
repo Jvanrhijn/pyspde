@@ -27,7 +27,7 @@ if __name__ == "__main__":
         Robin(lambda u: k*u)
     ]
 
-    lattice = Lattice(0, 1, points)
+    lattice = Lattice(0, 1, points, boundaries)
     basis = FiniteElementBasis(lattice, boundaries)
 
     #g = lambda u: (k - sigma**2)*u
@@ -42,12 +42,12 @@ if __name__ == "__main__":
     u0 = np.ones((1, points))
     noise = WhiteNoise(1, points) 
 
-    d1 = DerivativeOperator(1, 1/points, boundaries[0](), boundaries[1])
+    d1 = DerivativeOperator(1, lattice, boundaries)
 
     spde = SPDE(
         coeff,
-        lambda u: -k**2*u,
-        lambda u: sigma*sqrt(2),
+        lambda u: -d1(u)**2/u * 0,
+        lambda u: sigma*u*sqrt(2),
         noise
     )
 
@@ -57,10 +57,10 @@ if __name__ == "__main__":
         lattice
     )
 
-    stepper = ThetaScheme(1, lattice, basis, tmax/steps)
+    #stepper = ThetaScheme(1, lattice, basis, tmax/steps)
     #stepper = Midpoint(GalerkinSolver(problem), tmax/steps)
+    stepper = Midpoint(SpectralSolver(problem), tmax/steps)
 
-    #solver = TrajectorySolver(spde, steps, tmax, u0, lambda *args: SpectralSolver(*args, store_midpoint=True))
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper)
 
     ts = lattice.points
@@ -78,7 +78,7 @@ if __name__ == "__main__":
             verbose=True, 
             pbar=False, 
             seed=1,
-            check=True,
+            check=False,
     )
 
     ensemble_solver.solve()
@@ -101,10 +101,11 @@ if __name__ == "__main__":
     print(f"Max step error =   {step_errors.max()}")
     print(f"Max sample error = {sample_errors.max()}")
 
-    vis = Visualizer(mean, (0, tmax), lattice.range,
+    vis = Visualizer(mean, (0, tmax), lattice,
                      sample_error=ensemble_solver.sample_errors["value"][field],
                      step_error=ensemble_solver.step_errors["value"][field])
-    vis2 = Visualizer(square, (0, tmax), lattice.range,
+
+    vis2 = Visualizer(square, (0, tmax), lattice,
                       sample_error=ensemble_solver.sample_errors["square"][field],
                       step_error=ensemble_solver.step_errors["square"][field])
 
