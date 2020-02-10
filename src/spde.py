@@ -3,6 +3,8 @@ import copy
 from multiprocessing import Process, Queue
 from datetime import datetime
 import random
+from enum import Enum
+from abc import ABC, abstractmethod
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,44 +18,111 @@ except ImportError:
     tqdm = lambda s, *args, **kwargs: s
 
 
+class Boundary(Enum):
+
+    DIRICHLET = 1
+    ROBIN = 2
+
+class BoundaryCondition(ABC):
+
+    @abstractmethod
+    def __call__(self, *args):
+        pass
+
+    @abstractmethod
+    def kind(self):
+        pass
+
+
+# TODO: generalize to time-dependent BC
+class Dirichlet(BoundaryCondition):
+
+    def __init__(self, value):
+        self._value = value
+
+    def __call__(self, *args):
+        return self._value
+
+    def kind(self):
+        return Boundary.DIRICHLET
+
+
+# TODO: generalize to time-dependent BC
+class Robin(BoundaryCondition):
+
+    def __init__(self, value):
+        self._value = value
+
+    def __call__(self, function, *args):
+        return self._value(function)
+
+    def kind(self):
+        return Boundary.ROBIN
+
+
+class Lattice:
+
+    def __init__(self, origin, end, points, left=False, right=True):
+        if end != 1:
+            raise NotImplementedError("Only unit spatial interval supported")
+        self._points = np.linspace(origin + float(left)/points, end, points)
+        self._increment = (end - origin)/points
+        self._midpoints = np.arange(self._increment/2, end, self._increment)
+
+    @property 
+    def points(self):
+        return self._points
+
+    @property
+    def increment(self):
+        return self._increment
+
+    @property
+    def midpoints(self):
+        return self._midpoints
+
+    @property
+    def range(self):
+        return (self._points[0], self._points[-1])
+
 class SPDE:
 
-    def __init__(self, linear, da, noise, points, left, right, space_range=(0, 1), right_deriv=None):
-        if space_range != (0, 1):
-            raise NotImplementedError("Only unit space interval supported")
-        self.noise = noise
+    def __init__(self, linear, drift, volatility, noise):
         self.linear = linear
-        self.da = da
-        self.space_range = space_range
-        self.left = left
-        self.right = right
-        if right_deriv is not None:
-            self.right_deriv = right_deriv
-        else:
-            self.right_deriv = [lambda u: (g(u + 0.001) - g(u))/0.001 for g in right]
-        self.points = points
+        self.drift = drift
+        self.volatility = volatility
+        self.noise = noise
+
+    
+class StochasticPartialProblem:
+
+    def __init__(self, spde, boundaries, lattice):
+        self._spde = spde
+        self._lattice = lattice
+        if len(boundaries) != 2:
+            raise NotImplementedError("Too many boundary conditions: only 1D SPDE supported")
+        self.left = boundaries[0]
+        self.right = boundaries[1]
+
+    @property
+    def spde(self):
+        return self._spde
+
+    @property
+    def lattice(self):
+        return self._lattice
 
 
 class TrajectorySolver:
 
-    def __init__(self, spde, steps, tmax, initial, linear_solver, fields=1, integrator=None):
-        self._spde = spde
-        self._fields = fields
+    def __init__(self, problem, steps, tmax, initial, stepper):
+        self._problem = problem
         self._tmax = tmax
         self._steps = steps
         self._dt = tmax/steps
-        self._dx = (spde.space_range[1] - spde.space_range[0])/spde.points
-        self._xs = np.linspace(spde.space_range[0] + self._dx, spde.space_range[1], spde.points)
-        if initial.shape[0] != fields:
-            raise ValueError("Initial condition does not match number of fields")
         self._initial = initial
-        self._integrator = Midpoint(self._dt) if integrator is None else integrator
-        self._integrator.set_timestep(self._dt)
-        # linear solver should propagate half time-step for MP algorithm
-        self._linsolve_type = linear_solver
-        self._linear_solver = linear_solver(spde)
-        self._linear_solver.set_timestep(self._dt / integrator.ipsteps())
-        self._solution = np.zeros((fields, steps+1, spde.points))
+        self._stepper = stepper
+        self._solution = np.zeros((1, steps+1, len(problem.lattice.points)))
         self._solution[:, 0, :] = initial
         self._time = 0
 
@@ -66,15 +135,14 @@ class TrajectorySolver:
         self._steps = steps
         self._dt = self._tmax / steps
         initial = self._solution[:, 0, :]
-        self._solution = np.zeros((self._fields, steps+1, self._spde.points))
+        self._solution = np.zeros((1, steps+1, len(self._problem.lattice.points)))
         self._solution[:, 0, :] = initial
-        self._linear_solver.set_timestep(self._dt/2)
-        self._integrator.set_timestep(self._dt/2)
+        self._stepper.set_timestep(self._dt)
 
     def solve(self, average=False):
         for i in range(self._steps):
-            self._solution[:, i+1] = self._integrator.step(
-                self._solution[:, i], self._spde, self._linear_solver, average)
+            self._solution[:, i+1] = self._stepper.step(
+                self._solution[:, i], self._problem,  average)
 
     @property
     def solution(self):
@@ -82,11 +150,11 @@ class TrajectorySolver:
 
     @property
     def seed(self):
-        return self._spde.noise.seed
+        return self._problem.spde.noise.seed
 
     @seed.setter
     def seed(self, seed):
-        self._spde.noise.seed = seed
+        self._problem.spde.noise.seed = seed
 
 
 class EnsembleSolver:

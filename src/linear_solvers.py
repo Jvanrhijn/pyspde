@@ -16,24 +16,26 @@ class LinearSolver(ABC):
 
 class GalerkinSolver(LinearSolver):
 
-    def __init__(self, spde):
+    def __init__(self, problem):
         """Store data and precompute lots of stuff"""
-        self._range = spde.space_range
-        self._xs = np.linspace(self._range[0] + 1/spde.points, self._range[1], spde.points)
-        self._spde = spde
-        self._gderiv = spde.right_deriv
+        self._range = problem.lattice.range
+        points = len(problem.lattice.points)
+        self._xs = np.linspace(self._range[0] + 1/points, self._range[1], points)
+        self._f = problem.left()
+        self._g = problem.right
+        self._gderiv = lambda u: (self._g(u + 0.001) - self._g(u - 0.001))/0.002
 
         # assume sine basis, we'll generalize later
         self._basis_spectral = [partial(self._basis_sine, n)
-                                for n in range(1, spde.points)]\
+                                for n in range(1, points)]\
             + [lambda x: x - self._range[0]]
 
         self._basis_spectral_deriv = [partial(self._basis_sine_deriv, n)
-                                      for n in range(1, spde.points)]\
+                                      for n in range(1, points)]\
             + [lambda x: np.ones(x.shape) if isinstance(x, np.ndarray) else 1]
 
         # precompute Galerkin matrices
-        dim = spde.points
+        dim = points
         self._a = np.zeros((dim, dim))
         self._b = np.zeros((dim, dim))
         phi = np.zeros((dim, dim))
@@ -41,7 +43,7 @@ class GalerkinSolver(LinearSolver):
             [self._basis_spectral[i](self._xs[-1]) for i in range(dim)])
 
         # build a manually
-        ns = np.arange(0, spde.points, 1)
+        ns = np.arange(0, points, 1)
         k = self.k
         np.fill_diagonal(self._a, 0.5)
         self._a[:-1, -1] = self._a[-1, :-1] = np.sin(k(ns[1:]))/k(ns[1:])**2
@@ -59,7 +61,7 @@ class GalerkinSolver(LinearSolver):
         self._sol_to_fem = np.linalg.inv(phi)
 
         # more precomputation of useful quantities
-        self._d = spde.linear * np.linalg.inv(self._a) @ self._b
+        self._d = problem.spde.linear * np.linalg.inv(self._a) @ self._b
         self._b_inv = np.linalg.inv(self._b)
 
     def set_timestep(self, dt):
@@ -71,52 +73,48 @@ class GalerkinSolver(LinearSolver):
         self._q = self._s @ self._phi_right
         self._qphi = np.outer(self._q, self._phi_right)
 
-    def propagate_step(self, function):
-        fields = function.shape[0]
-        if self._spde.linear == 0:
+    def propagate_step(self, function, problem):
+        if problem.spde.linear == 0:
             # do nothing if the linear part is zero
             return function 
-        propagated_field = np.zeros(function.shape)
-        for field in range(fields):
-            fem = self._sol_to_fem @ (function[field] - self._spde.left[field])
-            fem0 = fem
-            fem = self.newton_iterate(fem, fem0, field)
-            propagated_field[field] = self._spde.left[field] + self._fem_to_sol @ fem
-        return propagated_field
-        #return self._spde.left + self._fem_to_sol @ fem
+        fem = self._sol_to_fem @ (function.T - self._f)
+        fem0 = fem
+        fem = self.newton_iterate(fem, fem0)
+        return self._f + self._fem_to_sol @ fem
 
-    def inverse_jacobian(self, function, field_index):
-        gprime = self._gderiv[field_index](self._spde.left[field_index] + function @ self._phi_right)
-        return -(np.eye(self._spde.points) \
+    def inverse_jacobian(self, function):
+        gprime = self._gderiv(self._f + function.T @ self._phi_right)
+        return -(np.eye(len(function)) \
             + gprime * self._qphi / (1 - gprime * self._phi_right @ self._q))
 
-    def G(self, function, field_index):
-        return self._spde.right[field_index](self._spde.left[field_index] \
-            + function @ self._phi_right)*self._phi_right
+    def G(self, function):
+        return self._g(self._f \
+            + function.T @ self._phi_right)*self._phi_right
 
-    def fixed_point_iterate(self, x, v0, field_index, it_max=100, tolerance=1e-10):
+    def fixed_point_iterate(self, x, v0, it_max=100, tolerance=1e-10):
         for it in range(it_max):
             x_old = x
-            x = self._contract(x, v0, field_index)
+            x = self._contract(x, v0)
             if np.linalg.norm(x - x_old) < tolerance:
+                break
+            if it == it_max-1:
+                raise Warning("maximum iterations reached")
+        return x
+
+    def newton_iterate(self, x, v0, it_max=100, tolerance=1e-10):
+        for it in range(it_max):
+            x_old = x
+            x = x - self.inverse_jacobian(x) @ (self._contract(x, v0) - x)
+            residue = np.linalg.norm(x - x_old)
+            if residue < tolerance:
                 break
             if it == it_max-1:
                 raise Warning("maximum Newton iterations reached")
         return x
 
-    def newton_iterate(self, x, v0, field_index, it_max=100, tolerance=1e-10):
-        for it in range(it_max):
-            x_old = x
-            x = x - self.inverse_jacobian(x, field_index) @ (self._contract(x, v0, field_index) - x)
-            if np.linalg.norm(x - x_old) < tolerance:
-                break
-            if it == it_max-1:
-                raise Warning("maximum Newton iterations reached")
-        return x
-
-    def _contract(self, v, v0, field_index):
+    def _contract(self, v, v0):
         prop = self._propagator
-        return (np.eye(self._spde.points) - prop) @ self._b_inv @ self.G(v, field_index)\
+        return (np.eye(len(v)) - prop) @ self._b_inv @ self.G(v)\
             + prop @ v0
 
     def _basis_sine(self, n, x):
