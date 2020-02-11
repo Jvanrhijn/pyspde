@@ -15,7 +15,7 @@ if __name__ == "__main__":
     points = 30
     steps = 100
     tmax = 5
-    blocks = 16
+    blocks = 4
     samples = 4
     processes = 4
 
