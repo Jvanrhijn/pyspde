@@ -12,18 +12,18 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 10
+    points = 31
     steps = 1000
-    tmax = 1
-    blocks = 16
-    samples = 4
-    processes = 4
+    tmax = 5
+    blocks = 1
+    samples = 1
+    processes = 1
 
-    sigma = 0.5
+    sigma = 0
     k = -1
 
     boundaries = [
-        Dirichlet(0.0),
+        Dirichlet(1.0),
         Dirichlet(0.0),
         #Robin(lambda u: (k -.5*sigma**2)*u)
     ]
@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     fig3, ax3 = vis2.steady_state(
         'o', label="Numerical solution", marker='o', linestyle='-.')
-    ax3.plot(ts, sigma**2*(ts+0.5)*(1 - (ts+0.5)))
+    ax3.plot(ts, sigma**2*(ts-lattice.range[0])*(1 - (ts-lattice.range[0])))
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     #ax3.plot(ts,

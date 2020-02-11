@@ -147,11 +147,9 @@ class ThetaScheme(Integrator):
         if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
             boundary = problem.left() * np.ones(field.shape)
         elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            boundary = problem.left() + (problem.right() - problem.left())*self._xs
+            boundary = problem.left() + (problem.right() - problem.left())*(self._xs - problem.lattice.range[0])
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
-        #vs = sol_to_fem @ (field - (left + (right - left)*xs)).T
-        # TODO generalize to more general boundary conditions
         vs = self._basis.coefficients(field - boundary)
         d = self.integrals(vs, w, problem)
         g = self.boundary(vs, problem)
