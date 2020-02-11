@@ -64,26 +64,39 @@ class RK2(Integrator):
 
 class RK4(Integrator):
 
+    def __init__(self, linsolve, dt):
+        super().__init__(dt)
+        self._linsolve = linsolve
+        self._linsolve.set_timestep(dt/2)
+
     def ipsteps(self):
         return 2
 
-    def step(self, field, spde, linsolve, average=False):
+    def step(self, field, problem, average=False):
+        da = lambda a, t, w: problem.spde.drift(a) + problem.spde.volatility(a)*w
+
         time_step = self._time_step
-        field_bar = linsolve.propagate_step(field)
-        w1 = spde.noise(self._time, average=average).T
-        d1 = 0.5*time_step*linsolve.propagate_step(spde.da(field, self._time, w1))
-        w2 = spde.noise(self._time + 0.5*time_step)
-        d2 = 0.5*time_step*spde.da(field_bar + d1, self._time + 0.5*time_step, w2)
-        d3 = 0.5*time_step*spde.da(field_bar + d2, self._time + 0.5*time_step, w2)
-        w3 = spde.noise(self._time + time_step, average=average)
-        d4 = 0.5*time_step*spde.da(
-            linsolve.propagate_step(field_bar + 2 * d3),
+        field_bar = self._linsolve.propagate_step(field, problem)
+
+        w1 = problem.spde.noise(self._time, average=average).T
+        d1 = 0.5*time_step*self._linsolve.propagate_step(da(field, self._time, w1), problem)
+
+        w2 = problem.spde.noise(self._time + 0.5*time_step)
+        d2 = 0.5*time_step*da(field_bar + d1, self._time + 0.5*time_step, w2)
+
+        d3 = 0.5*time_step*da(field_bar + d2, self._time + 0.5*time_step, w2)
+        w3 = problem.spde.noise(self._time + time_step, average=average)
+
+        d4 = 0.5*time_step*da(
+            self._linsolve.propagate_step(field_bar + 2 * d3, problem),
             self._time + time_step,
             w3
         )
         self._time += time_step
-        return linsolve.propagate_step(
-            field_bar + (d1 + 2*(d2 + d3))/3 + d4/3
+
+        return self._linsolve.propagate_step(
+            field_bar + (d1 + 2*(d2 + d3))/3 + d4/3,
+            problem
         )
 
     def set_timestep(self, dt):

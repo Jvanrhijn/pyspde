@@ -15,11 +15,11 @@ if __name__ == "__main__":
     points = 30
     steps = 1000
     tmax = 5
-    blocks = 16
-    samples = 4
-    processes = 4
+    blocks = 1
+    samples = 1
+    processes = 1
 
-    sigma = 0.5
+    sigma = 0.15
     k = -1
 
     boundaries = [
@@ -50,6 +50,7 @@ if __name__ == "__main__":
 
     stepper = ThetaScheme(1, lattice, basis, tmax/steps)
     #stepper = Midpoint(SpectralSolver(problem), tmax/steps)
+    #stepper = RK4(SpectralSolver(problem), tmax/steps)
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper)
 
