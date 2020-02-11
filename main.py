@@ -13,13 +13,13 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 1000
+    steps = 100
     tmax = 5
-    blocks = 1
-    samples = 1
-    processes = 1
+    blocks = 16
+    samples = 4
+    processes = 4
 
-    sigma = 0.0
+    sigma = 0.25
     k = -1
 
     boundaries = [
@@ -46,8 +46,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: -d1(u)**2/u * 0,
-        lambda u: sigma*u*sqrt(2),
+        lambda u: -k**2*u,
+        lambda u: sigma*sqrt(2),
         noise
     )
 
@@ -78,7 +78,7 @@ if __name__ == "__main__":
             verbose=True, 
             pbar=False, 
             seed=1,
-            check=False,
+            check=True,
     )
 
     ensemble_solver.solve()

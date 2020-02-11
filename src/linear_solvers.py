@@ -134,6 +134,7 @@ class SpectralSolver(LinearSolver):
     def __init__(self, problem, store_midpoint=False):
         self._left = problem.left()
         self._right = problem.right
+        self._gderiv = lambda u: (self._right(u + 0.001) - self._right(u - 0.001)) / 0.002
         points = len(problem.lattice.points)
         self._transform = Transform(
             [1, -1], self._left, self._right, points)
@@ -153,57 +154,108 @@ class SpectralSolver(LinearSolver):
     def propagate_step(self, u, problem):
         if self._linear == 0:
             return u
-        
+
         max_iters = 100
         tolerance = 1e-10
 
-        # If we have a stored midpoint theta, use that
-        theta = self._theta if self._theta is not None else np.zeros(u.shape)
-
-        v0 = self._transform.homogenize(u, self._xs)
-        v0hat = self._transform.fft(v0)
-
+        v0 = u - self._left - self._xs * self._right(u[:, -1])
+        v0hat = dst(v0, type=3, norm='ortho')
         import matplotlib.pyplot as plt
+
 
         u_boundary = u[:, -1]
         ut_boundary = 0
 
-        for it1 in range(max_iters):
+        thetahat = np.zeros(u.shape)
 
-            # Compute homogenized function in Fourier space using IP
-            vhat = ((1 - self._propagator) * self._d_inv * \
-                theta + self._propagator * v0hat).reshape(u.shape)
 
-            # Compute time-derivative in Fourier space using the ODE for vhat
-            dvhat_dt = (-self._d * vhat + theta).reshape(u.shape)
+        for it in range(max_iters):
+            vhat = self._propagator * v0hat + (1 - self._propagator) * self._d_inv * thetahat
+            dvhat_dt = -self._d * vhat + thetahat
 
-            # Transform back to real space
-            v = self._transform.ifft(vhat).reshape(u.shape)
-            dvdt = self._transform.ifft(dvhat_dt).reshape(u.shape)
+            v = idst(vhat, type=3, norm='ortho')
+            dvdt = idst(dvhat_dt, type=3, norm='ortho')
 
             u_boundary_old = u_boundary
-            u_boundary, ut_boundary = self._transform.boundary_iteration(
-                 self._xs, v, dvdt, u_boundary, ut_boundary)
+            
+            # newton iteration
+            p = v[:, -1] + self._left
+            u_boundary = u_boundary \
+                - (p + self._xs[-1]*self._right(u_boundary) - u_boundary) / (self._xs[-1]*self._gderiv(u_boundary) - 1)
 
-            # only compute new theta iterate if we don't have a midpoint value
-            # stored
-            if self._theta is None:
-                # Compute new value for theta using new boundary values for u
-                theta = self._transform.fft(self._transform.theta(
-                      self._xs, u_boundary, ut_boundary)).reshape(u.shape)
+            ut_boundary = dvdt[:, -1] + self._xs[-1]*self._gderiv(u_boundary)*ut_boundary
 
-            # check convergence
+            thetahat = -self._gderiv(u_boundary)*ut_boundary*dst(self._xs, type=3, norm='ortho')
+
             if abs(u_boundary - u_boundary_old) < tolerance:
                 break
 
-            if it1 == max_iters-1:
-                print("WARNING: max iterations reached")
+            if it == max_iters-1:
+                print("WARNING: max iters reached")
 
-        # store midpoint theta if needed, else delete it
-        self._theta = theta if self._theta is None and self._store_midpoint else None
+        out = self._left + self._xs.T*self._right(u_boundary) + idst(vhat, type=3, norm='ortho')
 
-        # return solution value at this time point
-        return self._transform.dehomogenize(v, self._xs, u_boundary).reshape(u.shape)
+        return out
+
+            
+            
+    #def propagate_step(self, u, problem):
+    #    if self._linear == 0:
+    #        return u
+    #    
+    #    max_iters = 100
+    #    tolerance = 1e-10
+
+    #    # If we have a stored midpoint theta, use that
+    #    theta = self._theta if self._theta is not None else np.zeros(u.shape)
+
+    #    v0 = self._transform.homogenize(u, self._xs)
+    #    v0hat = self._transform.fft(v0)
+
+    #    import matplotlib.pyplot as plt
+    #    plt.figure()
+    #    plt.plot(problem.lattice.points, u.T)
+    #    plt.show()
+
+    #    u_boundary = u[:, -1]
+    #    ut_boundary = 0
+
+    #    for it1 in range(max_iters):
+
+    #        # Compute homogenized function in Fourier space using IP
+    #        vhat = ((1 - self._propagator) * self._d_inv * \
+    #            theta + self._propagator * v0hat).reshape(u.shape)
+
+    #        # Compute time-derivative in Fourier space using the ODE for vhat
+    #        dvhat_dt = (-self._d * vhat + theta).reshape(u.shape)
+
+    #        # Transform back to real space
+    #        v = self._transform.ifft(vhat).reshape(u.shape)
+    #        dvdt = self._transform.ifft(dvhat_dt).reshape(u.shape)
+
+    #        u_boundary_old = u_boundary
+    #        u_boundary, ut_boundary = self._transform.boundary_iteration(
+    #             self._xs, v, dvdt, u_boundary, ut_boundary)
+
+    #        # only compute new theta iterate if we don't have a midpoint value
+    #        # stored
+    #        if self._theta is None:
+    #            # Compute new value for theta using new boundary values for u
+    #            theta = self._transform.fft(self._transform.theta(
+    #                  self._xs, u_boundary, ut_boundary)).reshape(u.shape)
+
+    #        # check convergence
+    #        if abs(u_boundary - u_boundary_old) < tolerance:
+    #            break
+
+    #        if it1 == max_iters-1:
+    #            print("WARNING: max iterations reached")
+
+    #    # store midpoint theta if needed, else delete it
+    #    self._theta = theta if self._theta is None and self._store_midpoint else None
+
+    #    # return solution value at this time point
+    #    return self._transform.dehomogenize(v, self._xs, u_boundary).reshape(u.shape)
 
 
 class Transform:
