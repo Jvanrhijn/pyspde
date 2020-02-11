@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from functools import partial
 
 import numpy as np
+from scipy.integrate import quad
 
 from src.spde import Boundary
 
@@ -99,3 +100,53 @@ class FiniteElementBasis(BasisSet):
                     lambda x: -1/dx,
                     lambda x: 0
                 ])
+
+
+class SpectralBasis(BasisSet):
+
+    def __init__(self, lattice, boundaries):
+        #raise NotImplementedError("Spectral basis not functional yet")
+        points = len(lattice.points)
+        xs = lattice.points
+        self._k = lambda n: (n-0.5)*np.pi
+        self._functions = [partial(self._basis_sine, n) for n in range(1, points)] \
+            + [lambda x: x]
+        self._derivatives = [partial(self._basis_sine_deriv, n) for n in range(1, points)] \
+            + [lambda x: np.ones(x.shape) if isinstance(x, np.ndarray) else 1] 
+        self._mass = np.zeros((points, points))
+        self._stiffness = np.zeros((points, points))
+        self._fem_to_sol = np.zeros((points, points))
+        # matrices for converting between coefficients and solution
+        for i in range(points):
+            for j in range(points):
+                self._fem_to_sol[i, j] = self._functions[j](xs[i])
+                self._mass[i, j] = quad(lambda x: self._functions[j](x)*self._functions[i](x), 0, 1)[0]
+                self._stiffness[i, j] = quad(lambda x: self._derivatives[j](x)*self._derivatives[i](x), 0, 1)[0]
+        self._sol_to_fem = np.linalg.inv(self._fem_to_sol)
+
+    def __call__(self, x, derivative=False):
+        if not derivative:
+            return np.array([fun(x) for fun in self._functions])
+        else:
+            return np.array([fun(x) for fun in self._derivatives])
+
+    def coefficients(self, lattice_points):
+        return (self._sol_to_fem @ lattice_points.T).reshape(lattice_points.shape)
+
+    def lattice_values(self, coefficients):
+        return (self._fem_to_sol @ coefficients).reshape(coefficients.shape)
+
+    def member(self, index):
+        return self._functions[index]
+
+    def stiffness(self):
+        return self._stiffness
+
+    def mass(self):
+        return self._mass
+
+    def _basis_sine(self, n, x):
+        return np.sin(self._k(n)*x)
+
+    def _basis_sine_deriv(self, n, x):
+        return self._k(n)*np.cos(self._k(n)*x)

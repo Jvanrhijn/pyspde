@@ -13,29 +13,23 @@ if __name__ == "__main__":
 
     coeff = 1
     points = 30
-    steps = 100
+    steps = 1000
     tmax = 5
-    blocks = 4
+    blocks = 16
     samples = 4
     processes = 4
 
-    sigma = 0.25
+    sigma = 0.5
     k = -1
 
     boundaries = [
         Dirichlet(1.0),
-        Robin(lambda u: k*u)
+        Robin(lambda u: (k - 0.5*sigma**2)*u)
     ]
 
     lattice = Lattice(0, 1, points, boundaries)
     basis = FiniteElementBasis(lattice, boundaries)
-
-    #g = lambda u: (k - sigma**2)*u
-    #gderiv = lambda u: k
-    #g = lambda u: 0
-    #g = lambda u: k*u
-    #gderiv = lambda u: k - sigma**2
-    #g = [lambda u: -0.5*sigma*u*np.exp(-u**2)]
+    #basis = SpectralBasis(lattice, boundaries)
 
     gderiv = None
 
@@ -46,8 +40,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: -k**2*u,
-        lambda u: sigma*sqrt(2),
+        lambda u: -d1(u)**2/u,
+        lambda u: sigma*u*sqrt(2),
         noise
     )
 
@@ -57,9 +51,9 @@ if __name__ == "__main__":
         lattice
     )
 
-    #stepper = ThetaScheme(1, lattice, basis, tmax/steps)
+    stepper = ThetaScheme(1, lattice, basis, tmax/steps)
     #stepper = Midpoint(GalerkinSolver(problem), tmax/steps)
-    stepper = Midpoint(SpectralSolver(problem), tmax/steps)
+    #stepper = Midpoint(SpectralSolver(problem), tmax/steps)
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper)
 
@@ -83,7 +77,6 @@ if __name__ == "__main__":
 
     ensemble_solver.solve()
     field = 0
-
 
     mean = ensemble_solver.means["value"][field]
     square = ensemble_solver.means["square"][field]

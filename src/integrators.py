@@ -86,6 +86,11 @@ class RK4(Integrator):
             field_bar + (d1 + 2*(d2 + d3))/3 + d4/3
         )
 
+    def set_timestep(self, dt):
+        self._linsolve.set_timestep(dt/2)
+        self._time_step = dt
+
+
 
 class ThetaScheme(Integrator):
     

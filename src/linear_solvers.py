@@ -166,7 +166,6 @@ class SpectralSolver(LinearSolver):
 
         thetahat = np.zeros(u.shape)
 
-
         for it in range(max_iters):
             vhat = self._propagator * v0hat + (1 - self._propagator) * self._d_inv * thetahat
             dvhat_dt = -self._d * vhat + thetahat
