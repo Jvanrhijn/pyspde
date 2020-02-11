@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from src.integral import Integral
-from src.integrators import Midpoint
 
 try:
     from tqdm import tqdm
@@ -63,20 +62,25 @@ class Robin(BoundaryCondition):
 class Lattice:
 
     def __init__(self, origin, end, points, boundaries):
-        if origin != 0 or end != 1:
-            raise NotImplementedError("Only unit spatial interval supported")
+        self._origin = origin
+        self._end = end
+        #if origin != 0 or end != 1:
+        #    raise NotImplementedError("Only unit spatial interval supported")
         include_left = not boundaries[0].kind() == Boundary.DIRICHLET
         include_right = not boundaries[1].kind() == Boundary.DIRICHLET
-        self._increment = (end - origin)/points
         if include_left and include_right:
+            self._increment = (end - origin)/points
             self._points = np.arange(origin, end + self._increment, self._increment)
         elif include_left and not include_right:
+            self._increment = (end - origin)/points
             self._points = np.arange(origin, end, self._increment)
         elif not include_left and include_right:
+            self._increment = (end - origin)/points
             self._points = np.arange(origin + self._increment, end + self._increment, self._increment)
         elif not include_left and not include_right:
+            self._increment = (end - origin)/(points+1)
             self._points = np.arange(origin + self._increment, end, self._increment)
-        self._midpoints = np.arange(self._increment/2, end, self._increment)
+        self._midpoints = np.arange(origin + self._increment/2, end, self._increment)
 
     @property 
     def points(self):
@@ -92,7 +96,8 @@ class Lattice:
 
     @property
     def range(self):
-        return (self._points[0], self._points[-1])
+        return (self._origin, self._end)
+        #return (self._points[0], self._points[-1])
 
 class SPDE:
 

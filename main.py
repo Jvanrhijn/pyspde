@@ -12,33 +12,34 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 30
+    points = 10
     steps = 1000
-    tmax = 5
-    blocks = 1
-    samples = 1
-    processes = 1
+    tmax = 1
+    blocks = 16
+    samples = 4
+    processes = 4
 
-    sigma = 0.15
+    sigma = 0.5
     k = -1
 
     boundaries = [
-        Dirichlet(1.0),
-        Robin(lambda u: (k - 0.5*sigma**2)*u)
+        Dirichlet(0.0),
+        Dirichlet(0.0),
+        #Robin(lambda u: (k -.5*sigma**2)*u)
     ]
 
-    lattice = Lattice(0, 1, points, boundaries)
+    lattice = Lattice(-0.5, 0.5, points, boundaries)
     basis = FiniteElementBasis(lattice, boundaries)
 
-    u0 = np.ones((1, points))
-    noise = WhiteNoise(1, points) 
+    u0 = np.ones((1, points))*0
+    noise = WhiteNoise(1, points+1) 
 
     d1 = DerivativeOperator(1, lattice, boundaries)
 
     spde = SPDE(
         coeff,
-        lambda u: -d1(u)**2/u,
-        lambda u: sigma*u*sqrt(2),
+        lambda u: 0.0,
+        lambda u: sigma*sqrt(2),
         noise
     )
 
@@ -97,19 +98,24 @@ if __name__ == "__main__":
 
     fig2, ax2 = vis.steady_state(
         label="Numerical solution", marker='o', linestyle='-.')
+
     ax2.set_ylabel(r"$\langle\phi\rangle$")
     ax2.set_xlabel("t")
-    ax2.plot(ts, np.exp(k*ts),
-             label=r"Analytical solution")
+    #ax2.plot(ts, np.exp(k*ts),
+    #         label=r"Analytical solution")
 
     ax2.legend()
 
+    fig, ax = vis2.surface(cstride=points//mesh_points,
+                          rstride=steps//mesh_points)
+
     fig3, ax3 = vis2.steady_state(
         'o', label="Numerical solution", marker='o', linestyle='-.')
+    ax3.plot(ts, sigma**2*(ts+0.5)*(1 - (ts+0.5)))
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
-    ax3.plot(ts,
-             np.exp((2*k + sigma**2)*ts),
-             label=r"Analytical solution")
+    #ax3.plot(ts,
+    #         np.exp((2*k + sigma**2)*ts),
+    #         label=r"Analytical solution")
 
     plt.show()

@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
+from src.spde import Boundary
+
 
 class Integrator(ABC):
 
@@ -43,7 +45,7 @@ class Midpoint(Integrator):
         w = problem.spde.noise(self._time + 0.5*time_step, average=average)
         for _ in range(self._iterations):
             a = a0 + 0.5*time_step * \
-                da(a, self._time + 0.5*time_step, w)
+                da(a, self._time + 0.5*time_step, w).reshape(a0.shape)
         # propagate solution to t + dt
         self._time += time_step
         return self._linsolve.propagate_step(2*a - a0, problem)
@@ -115,11 +117,12 @@ class ThetaScheme(Integrator):
         self._q = self._minv @ self._n
         points = self._m.shape[0]
         self._dt = timestep
-        self._dx = 1/points
+        self._dx = lattice.increment
+        self._xs = lattice.points
         self._xs_midpoint = lattice.midpoints
         self._phi_midpoint = basis(self._xs_midpoint)
         self._phi_deriv_midpoint = basis(self._xs_midpoint, derivative=True)
-        self._phi_right = basis(lattice.range[1])
+        self._phi_right = basis(lattice.range[1] - np.finfo(float).eps)
         self._time = 0
         self._ident = np.eye(points)
         self._gamma = self._ident - self._dt*self._q \
@@ -141,26 +144,43 @@ class ThetaScheme(Integrator):
         return self._step(field, problem, w)
             
     def _step(self, field, problem, w):
+        if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
+            boundary = problem.left() * np.ones(field.shape)
+        elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
+            boundary = problem.left() + (problem.right() - problem.left())*self._xs
+        else:
+            raise NotImplementedError("Boundary combination not yet implemented")
         #vs = sol_to_fem @ (field - (left + (right - left)*xs)).T
-        left = problem.left()
         # TODO generalize to more general boundary conditions
-        vs = self._basis.coefficients(field - left)
+        vs = self._basis.coefficients(field - boundary)
         d = self.integrals(vs, w, problem)
         g = self.boundary(vs, problem)
         self._time += self._dt
-        return (left + self._basis.lattice_values(self._gamma @ (vs.T + d.T + g.T))).reshape(field.shape)
+        return (boundary.reshape(vs.T.shape) \
+            + self._basis.lattice_values(self._gamma @ (vs.T + d.T + g.T)))\
+                .reshape(field.shape)
     
     def integrals(self, vs, w, problem):
         u_midpoint = problem.left() \
             + (self._phi_midpoint.T @ vs.T)
+        #return (self._minv @ (((problem.spde.drift(u_midpoint)*self._dx*self._dt \
+        #                     + problem.spde.volatility(u_midpoint)*w*self._dx*self._dt) \
+        #                     * self._phi_midpoint.T)).sum(axis=1)).reshape(vs.shape)
         return (self._minv @ (((problem.spde.drift(u_midpoint)*self._dx*self._dt \
                              + problem.spde.volatility(u_midpoint)*w*self._dx*self._dt) \
-                             * self._phi_midpoint)).sum(axis=1)).reshape(vs.shape)
+                             * self._phi_midpoint.T).sum(axis=0).reshape(vs.shape).T))\
+                                 .reshape(vs.shape)
+
     
     def boundary(self, vs, problem):
-        #return (left - right) * self._dx * self._dt * (self._minv @ self._phi_deriv_midpoint).sum(axis=1)\
-        #    .reshape(vs.shape)
-        left = problem.left()
-        g = problem.right
         coefficients = vs.reshape(self._phi_right.shape)
-        return (self._minv @ (g(left + self._phi_right @ coefficients)*self._phi_right*self._dt)).reshape(vs.shape)
+        if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
+            return (self._minv @ (problem.right(problem.left() + self._phi_right @ coefficients)\
+                *self._phi_right*self._dt))\
+                .reshape(vs.shape)
+        elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
+            return (problem.left() - problem.right()) * self._dx * self._dt \
+                * (self._minv @ self._phi_deriv_midpoint).sum(axis=1)\
+                .reshape(vs.shape)
+        else:
+            raise NotImplementedError("Boundary combination not yet implemented")

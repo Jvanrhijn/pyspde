@@ -51,7 +51,7 @@ class WhiteNoise:
                                                 size=(factor, self._dimension)), axis=0)
 
         self._time = t
-        return self._value.T
+        return self._value.reshape((self._dimension, 1))
 
     @property
     def covariance(self):

@@ -13,6 +13,7 @@ class DerivativeOperator:
         self._right = boundaries[1]
 
     def __call__(self, u):
+        # TODO: fix shape
         u = u.reshape((1, u.size))
         if self._order == 1:
             derivative = np.zeros(u.shape)

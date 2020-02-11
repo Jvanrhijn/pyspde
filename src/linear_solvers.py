@@ -17,6 +17,7 @@ class LinearSolver(ABC):
 class GalerkinSolver(LinearSolver):
 
     def __init__(self, problem):
+        raise NotImplementedError("Galerkin method not yet implemented")
         """Store data and precompute lots of stuff"""
         self._range = problem.lattice.range
         points = len(problem.lattice.points)
@@ -132,6 +133,7 @@ class GalerkinSolver(LinearSolver):
 class SpectralSolver(LinearSolver):
 
     def __init__(self, problem, store_midpoint=False):
+        print("WARNING: spectral solver can only handle Dirichlet-Neumann boundaries")
         self._left = problem.left()
         self._right = problem.right
         self._gderiv = lambda u: (self._right(u + 0.001) - self._right(u - 0.001)) / 0.002
@@ -191,5 +193,4 @@ class SpectralSolver(LinearSolver):
                 print("WARNING: max iters reached")
 
         out = self._left + self._xs.T*self._right(u_boundary) + idst(vhat, type=3, norm='ortho')
-
-        return out
+        return out.reshape(u.shape)

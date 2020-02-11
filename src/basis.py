@@ -37,6 +37,7 @@ class BasisSet(ABC):
 class FiniteElementBasis(BasisSet):
 
     def __init__(self, lattice, boundaries):
+        self._origin, self._end = lattice.range
         self._dimension = len(lattice.points)
         self._dx = lattice.increment
         self._functions = [partial(self._basis_hat, n) for n in range(self._dimension)]
@@ -77,6 +78,8 @@ class FiniteElementBasis(BasisSet):
 
     def _basis_hat(self, n, x):
         dx = self._dx
+        x0 = self._origin
+        x = x - x0
         return np.piecewise(x,
                 [
                     np.logical_and((n)*dx < x, x <= (n+1)*dx),
@@ -90,6 +93,8 @@ class FiniteElementBasis(BasisSet):
 
     def _basis_hat_deriv(self, n, x):
         dx = self._dx
+        x0 = self._origin
+        x = x - x0
         return np.piecewise(x,
                 [
                     np.logical_and((n)*dx <= x, x <= (n+1)*dx),
