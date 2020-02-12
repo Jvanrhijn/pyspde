@@ -17,7 +17,7 @@ class LinearSolver(ABC):
 class GalerkinSolver(LinearSolver):
 
     def __init__(self, problem):
-        raise NotImplementedError("Galerkin method not yet implemented")
+        #raise NotImplementedError("Galerkin method not yet implemented")
         """Store data and precompute lots of stuff"""
         self._range = problem.lattice.range
         points = len(problem.lattice.points)

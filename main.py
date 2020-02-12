@@ -16,21 +16,22 @@ if __name__ == "__main__":
     steps = 1000
     resolution = 10
     tmax = 2.5
-    blocks = 4
+    blocks = 16
     samples = 4
     processes = 4
 
-    sigma = 0.0
+    sigma = 0.5
     k = -1
 
     boundaries = [
         Dirichlet(1.0),
-        Robin(lambda u: (k - 0.5*sigma**2)*u)
+        Robin(lambda u: k*u)
         #Dirichlet(0)
     ]
 
     lattice = Lattice(0, 1, points, boundaries)
-    basis = FiniteElementBasis(lattice, boundaries)
+    #basis = FiniteElementBasis(lattice, boundaries)
+    basis = SpectralBasis(lattice, boundaries)
 
     u0 = np.ones((1, points))
     noise = WhiteNoise(1) 
@@ -50,9 +51,10 @@ if __name__ == "__main__":
         lattice
     )
 
-    stepper = ThetaScheme(1, lattice, basis, tmax/steps)
-    #stepper = Midpoint(SpectralSolver(problem), tmax/steps)
-    #stepper = RK4(SpectralSolver(problem), tmax/steps)
+    #stepper = MidpointFEM(lattice, basis)
+    stepper = ThetaScheme(1, lattice, basis)
+    #stepper = MidpointIP(GalerkinSolver(problem))
+    #stepper = RK4IP(GalerkinSolver(problem))
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper, resolution=resolution)
 

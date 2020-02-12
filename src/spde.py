@@ -136,6 +136,7 @@ class TrajectorySolver:
         self._dt = tmax/steps
         self._initial = initial
         self._stepper = stepper
+        self._stepper.set_timestep(self._dt)
         self._resolution = resolution
         self._solution = np.zeros((1, (steps+1)//resolution, len(problem.lattice.points)))
         self._solution[:, 0, :] = initial
