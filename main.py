@@ -11,12 +11,12 @@ from examples.potentials import *
 
 if __name__ == "__main__":
 
-    coeff = 1
-    points = 30
-    steps = 2000
+    coeff = 0
+    points = 1
+    steps = 1000
     resolution = 10
     tmax = 1
-    blocks = 4
+    blocks = 16*8
     samples = 4
     processes = 4
 
@@ -24,8 +24,9 @@ if __name__ == "__main__":
     k = -1
 
     boundaries = [
-        Dirichlet(1),
-        Robin(lambda u: k*u)
+        Dirichlet(0.),
+        Dirichlet(0.)
+        #Robin(lambda u: k*u)
     ]
 
     lattice = Lattice(0, 1, points, boundaries)
@@ -39,8 +40,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: -k**2*u,
-        lambda u: sqrt(2)*sigma,
+        lambda u: k*u,
+        lambda u: u*sigma,
         noise
     )
 
@@ -50,8 +51,8 @@ if __name__ == "__main__":
         lattice
     )
 
-    stepper = MidpointFEM(lattice, basis, problem, solver=lambda f, x: opt.broyden1(f, x, iter=2))
-    #stepper = ThetaScheme(1., lattice, basis, problem)
+    stepper = MidpointFEM(lattice, basis, problem, solver=lambda f, x: opt.broyden1(f, x, iter=4))
+    #stepper = ThetaScheme(1, lattice, basis, problem)
     #stepper = MidpointIP(SpectralSolver(problem))
     #stepper = RK4IP(SpectralSolver(problem))
     #stepper = DifferentialWeakMethod(lattice, problem)
@@ -121,5 +122,7 @@ if __name__ == "__main__":
              label=r"Analytical solution")
 
     taus = vis.taxis
+    fig, ax = vis.at_origin()
+    ax.plot(taus, np.exp(k*taus), linestyle='-.')
 
     plt.show()

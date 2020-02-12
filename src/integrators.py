@@ -96,7 +96,6 @@ class MidpointFEM(Integrator):
         self._n = basis.stiffness() * problem.spde.linear
         self._minv = np.linalg.inv(self._m)
         self._q = self._minv @ self._n
-        points = self._m.shape[0]
         self._dt = None 
         self._dx = lattice.increment
         self._xs = lattice.points
@@ -121,8 +120,7 @@ class MidpointFEM(Integrator):
         # extract FEM coefficients
         vs = self._basis.coefficients(field - boundary).flatten()
 
-        # for the first iteration, ignore the drift and volatility
-
+        # function whose root to find for the update function
         def minfunc(x):
             x = x.flatten()
             vmid = 0.5 * (vs + x)
@@ -145,7 +143,7 @@ class MidpointFEM(Integrator):
             return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
                 .reshape(vs.shape)
         else:
-            return problem.spde.drift(vs)*self._dt*self._dx
+            return problem.spde.drift(vs)*self._dt
 
     def volatility_integral(self, vs, w, problem):
         boundary = self.get_boundary(vs, problem)
