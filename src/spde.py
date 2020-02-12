@@ -129,14 +129,15 @@ class StochasticPartialProblem:
 
 class TrajectorySolver:
 
-    def __init__(self, problem, steps, tmax, initial, stepper):
+    def __init__(self, problem, steps, tmax, initial, stepper, resolution=1):
         self._problem = problem
         self._tmax = tmax
         self._steps = steps
         self._dt = tmax/steps
         self._initial = initial
         self._stepper = stepper
-        self._solution = np.zeros((1, steps+1, len(problem.lattice.points)))
+        self._resolution = resolution
+        self._solution = np.zeros((1, (steps+1)//resolution, len(problem.lattice.points)))
         self._solution[:, 0, :] = initial
         self._time = 0
 
@@ -149,14 +150,21 @@ class TrajectorySolver:
         self._steps = steps
         self._dt = self._tmax / steps
         initial = self._solution[:, 0, :]
-        self._solution = np.zeros((1, steps+1, len(self._problem.lattice.points)))
+        self._solution = np.zeros((1, (steps+1)//self._resolution, len(self._problem.lattice.points)))
         self._solution[:, 0, :] = initial
         self._stepper.set_timestep(self._dt)
 
     def solve(self, average=False):
+        solution = self._solution[:, 0]
+        index = 0
         for i in range(self._steps):
-            self._solution[:, i+1] = self._stepper.step(
-                self._solution[:, i], self._problem,  average)
+            solution = self._stepper.step(
+                solution, self._problem,  average)
+            if i % self._resolution == 0:
+                self._solution[:, index] = solution
+                index += 1
+            #self._solution[:, i+1] = self._stepper.step(
+            #    self._solution[:, i], self._problem,  average)
 
     @property
     def solution(self):

@@ -19,8 +19,7 @@ class Visualizer:
         xs, ts = np.meshgrid(self._xs, self._ts)
         fig = plt.figure()
         ax = fig.add_subplot(projection="3d")
-        ax.plot_surface(xs, ts, self._solution, *
-                        args, cmap="viridis", **kwargs)
+        ax.plot_surface(xs, ts, self._solution, *args, cmap="viridis", **kwargs)
         return fig, ax
 
     def steady_state(self, *args, **kwargs):

@@ -36,32 +36,21 @@ class Midpoint(Integrator):
         return 2
 
     def step(self, field, problem, average=False):
+        dx = problem.lattice.increment
+        dimension = len(problem.lattice.points)
         # propagate solution to t + dt/2
         time_step = self._time_step
         a0 = self._linsolve.propagate_step(field, problem)
         a = a0
         da = lambda a, t, w: problem.spde.drift(a) + problem.spde.volatility(a)*w
         # perform midpoint iteration
-        w = problem.spde.noise(self._time + 0.5*time_step, average=average)
+        w = problem.spde.noise(self._time + 0.5*time_step, dx, dimension, average=average)
         for _ in range(self._iterations):
             a = a0 + 0.5*time_step * \
                 da(a, self._time + 0.5*time_step, w).reshape(a0.shape)
         # propagate solution to t + dt
         self._time += time_step
         return self._linsolve.propagate_step(2*a - a0, problem)
-
-
-class RK2(Integrator):
-
-    def step(self, field, spde, linsolve, average=False):
-        time_step = self._time_step
-        field_bar = linsolve.propagate_step(field)
-        w1 = spde.noise(self._time, average=average)
-        d1 = time_step * linsolve.propagate_step(spde.da(field, self._time, w1))
-        w2 = spde.noise(self._time + time_step, average=average) 
-        d2 = time_step * spde.da(field_bar + d1, self._time + time_step, w2)
-        self._time += time_step
-        return field_bar + 0.5 * (d1 + d2)
 
 
 class RK4(Integrator):
@@ -75,31 +64,32 @@ class RK4(Integrator):
         return 2
 
     def step(self, field, problem, average=False):
+        dx = problem.lattice.increment
+        dimension = len(problem.lattice.points)
         da = lambda a, t, w: problem.spde.drift(a) + problem.spde.volatility(a)*w
 
         time_step = self._time_step
-        field_bar = self._linsolve.propagate_step(field, problem)
+        field_bar = self._linsolve.propagate_step(field, problem).reshape(field.shape)
+        w1 = problem.spde.noise(self._time, dx, dimension, average=average).reshape(field.shape)
+        d1 = 0.5*time_step*self._linsolve.propagate_step(da(field, self._time, w1), problem).reshape(field.shape)
 
-        w1 = problem.spde.noise(self._time, average=average).T
-        d1 = 0.5*time_step*self._linsolve.propagate_step(da(field, self._time, w1), problem)
-
-        w2 = problem.spde.noise(self._time + 0.5*time_step)
-        d2 = 0.5*time_step*da(field_bar + d1, self._time + 0.5*time_step, w2)
+        w2 = problem.spde.noise(self._time + 0.5*time_step, dx, dimension, average=average).reshape(field.shape)
+        d2 = 0.5*time_step*da(field_bar + d1, self._time + 0.5*time_step, w2).reshape(field.shape)
 
         d3 = 0.5*time_step*da(field_bar + d2, self._time + 0.5*time_step, w2)
-        w3 = problem.spde.noise(self._time + time_step, average=average)
+        w3 = problem.spde.noise(self._time + time_step, dx, dimension, average=average).reshape(field.shape)
 
         d4 = 0.5*time_step*da(
             self._linsolve.propagate_step(field_bar + 2 * d3, problem),
             self._time + time_step,
             w3
-        )
+        ).reshape(field.shape)
         self._time += time_step
 
         return self._linsolve.propagate_step(
             field_bar + (d1 + 2*(d2 + d3))/3 + d4/3,
             problem
-        )
+        ).reshape(field.shape)
 
     def set_timestep(self, dt):
         self._linsolve.set_timestep(dt/2)
@@ -139,7 +129,9 @@ class ThetaScheme(Integrator):
           leading to large sampling errors which are being interpreted as step errors
     """
     def step(self, field, problem, average=False):
-        w = problem.spde.noise(self._time + 0.5*self._dt, average=average)
+        dx = problem.lattice.increment
+        midpoints = len(problem.lattice.midpoints)
+        w = problem.spde.noise(self._time + 0.5*self._dt, dx, midpoints, average=average)
         #return self._step_midpoint(field, w)
         return self._step(field, problem, w)
             
@@ -159,16 +151,12 @@ class ThetaScheme(Integrator):
                 .reshape(field.shape)
     
     def integrals(self, vs, w, problem):
-        u_midpoint = problem.left() \
-            + (self._phi_midpoint.T @ vs.T)
-        #return (self._minv @ (((problem.spde.drift(u_midpoint)*self._dx*self._dt \
-        #                     + problem.spde.volatility(u_midpoint)*w*self._dx*self._dt) \
-        #                     * self._phi_midpoint.T)).sum(axis=1)).reshape(vs.shape)
-        return (self._minv @ (((problem.spde.drift(u_midpoint)*self._dx*self._dt \
-                             + problem.spde.volatility(u_midpoint)*w*self._dx*self._dt) \
-                             * self._phi_midpoint.T).sum(axis=0).reshape(vs.shape).T))\
+        u_midpoint = (problem.left() \
+            + (self._phi_midpoint.T @ vs.T)).T
+        return (self._minv.T @ ((self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt \
+                             + problem.spde.volatility(u_midpoint)*w*self._dx*self._dt))\
+                                 .sum(axis=1)))\
                                  .reshape(vs.shape)
-
     
     def boundary(self, vs, problem):
         coefficients = vs.reshape(self._phi_right.shape)
