@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
+from src.basis import FiniteElementBasis
 from src.spde import Boundary
 
 
@@ -92,7 +93,7 @@ class MidpointFEM(Integrator):
         super().__init__()
         self._midpoint_iters = midpoint_iters
         self._m = basis.mass()
-        self._n = basis.stiffness()*problem.spde.linear
+        self._n = basis.stiffness() * problem.spde.linear
         self._minv = np.linalg.inv(self._m)
         self._q = self._minv @ self._n
         points = self._m.shape[0]
@@ -149,10 +150,14 @@ class MidpointFEM(Integrator):
         return (boundary.reshape(vs.shape) + self._basis.lattice_values(vbar)).reshape(field.shape)
             
     def drift_integral(self, vs, problem):
-        u_midpoint = (problem.left() \
-            + (self._phi_midpoint.T @ vs.T)).T
-        return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
-            .reshape(vs.shape)
+        if problem.spde.linear != 0:
+            # TODO: fix in the case of general boundaries
+            u_midpoint = (problem.left() \
+                + (self._phi_midpoint.T @ vs.T)).T
+            return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
+                .reshape(vs.shape)
+        else:
+            return problem.spde.drift(vs)*self._dt*self._dx
 
     def volatility_integral(self, vs, w, problem):
         u_midpoint = (problem.left() \
@@ -216,16 +221,20 @@ class ThetaScheme(Integrator):
             raise NotImplementedError("Boundary combination not yet implemented")
         vs = self._basis.coefficients(field - boundary)
         d = self.drift_integral(vs, problem) + self.volatility_integral(vs, w, problem)
-        g = self.boundary(vs, problem)
+        g = self.boundary(vs, problem) * problem.spde.linear
         self._time += self._dt
         return (boundary.reshape(field.shape) \
             + self._basis.lattice_values((self._gamma @ (vs.T + d.T + g.T)).reshape(field.shape)))
 
     def drift_integral(self, vs, problem):
-        u_midpoint = (problem.left() \
-            + (self._phi_midpoint.T @ vs.T)).T
-        return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
-            .reshape(vs.shape)
+        if problem.spde.linear != 0:
+            # TODO: fix in the case of general boundaries
+            u_midpoint = (problem.left() \
+                + (self._phi_midpoint.T @ vs.T)).T
+            return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
+                .reshape(vs.shape)
+        else:
+            return problem.spde.drift(vs)*self._dt
 
     def volatility_integral(self, vs, w, problem):
         u_midpoint = (problem.left() \
@@ -245,3 +254,65 @@ class ThetaScheme(Integrator):
                 .reshape(vs.shape)
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
+
+
+class DifferentialWeakMethod(Integrator):
+
+    def __init__(self, lattice, problem, method="midpoint"):
+        super().__init__()
+        print("Warning: DifferentialWeakMethod is experimental!")
+        self._basis = FiniteElementBasis(lattice, [problem.left, problem.right])
+        self._m = self._basis.mass()
+        self._minv = np.linalg.inv(self._m)
+        self._n = self._basis.stiffness()
+        self._xs_midpoint = lattice.midpoints
+        self._phi_midpoint = self._basis(self._xs_midpoint)
+        self._phi_right = self._basis(lattice.range[1]-np.finfo(float).eps)
+        self._dx = lattice.increment
+        self._dt = 0
+
+    def set_timestep(self, dt):
+        self._dt = dt
+
+    def dv(self, vs, problem, average=False):
+        cov = self.covariance(vs, problem)*problem.spde.noise.covariance
+        factor = 2 if average else 1
+        w = np.mean(problem.spde.noise._rng.multivariate_normal(
+            np.zeros(vs.size), factor*cov/(self._dx*self._dx), size=(factor, 1)),
+             axis=0)
+        a = self.drift(vs, problem).reshape(vs.shape) - (self._n @ vs.T).reshape(vs.shape)
+        return (self._minv @ (a.T + w.T)).reshape(vs.shape)
+
+    def covariance(self, vs, problem):
+        b = problem.spde.volatility
+        # TODO: arbitrary boundaries
+        u_midpoint = (problem.left() + self._phi_midpoint.T @ vs.T).reshape(vs.shape)
+        off_diag = b(u_midpoint[:, 1:])**2
+        diag = np.zeros(u_midpoint.size)
+        diag[:-1] = b(u_midpoint[:, 1:])**2 + b(u_midpoint[:, :-1])**2
+        diag[-1] = b(u_midpoint[:, -1])**2
+        cov = 0.25*self._dx * (
+            np.diag(off_diag.flatten(), k=1) + np.diag(off_diag.flatten(), k=-1) + np.diag(diag.flatten()))
+        return cov
+
+    def drift(self, vs, problem):
+        u_midpoint = (problem.left() + self._phi_midpoint.T @ vs.T).reshape(vs.shape)
+        a = problem.spde.drift(u_midpoint)
+        summand = np.zeros(vs.shape)
+        summand[:, :-1] = a[:, :-1] + a[:, 1:]
+        summand[:, -1] = a[:, -1]
+        u_right = problem.left() + vs @ self._phi_right.T
+        return (self._phi_midpoint * summand).sum(axis=1) * self._dx + problem.right(u_right)*self._phi_right
+
+    def step(self, field, problem, average=False):
+        vs = self._basis.coefficients(field - problem.left())
+        # propagate solution to t + dt/2
+        time_step = self._dt
+        v0 = vs
+        # perform midpoint iteration
+        for _ in range(1):
+            vs = v0 + 0.5*time_step * \
+                self.dv(vs, problem, average=average)
+        # propagate solution to t + dt
+        self._time += time_step
+        return (problem.left() + self._basis.lattice_values(2*vs - v0)).reshape(field.shape)

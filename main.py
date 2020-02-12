@@ -11,20 +11,20 @@ from examples.potentials import *
 
 if __name__ == "__main__":
 
-    coeff = 0
-    points = 1
-    steps = 1000
+    coeff = 1
+    points = 10
+    steps = 5000
     resolution = 10
     tmax = 5
-    blocks = 1
-    samples = 1
-    processes = 1
+    blocks = 16
+    samples = 4
+    processes = 4
 
-    sigma = 0.0
+    sigma = sqrt(0.5)
     k = -1
 
     boundaries = [
-        Dirichlet(1.0),
+        Dirichlet(1),
         Robin(lambda u: (k - sigma**2)*u)
         #Dirichlet(0)
     ]
@@ -40,8 +40,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: k*u,
-        lambda u: sigma*u,
+        lambda u: -d1(u)**2/u,
+        lambda u: sqrt(2)*sigma*u,
         noise
     )
 
@@ -52,9 +52,10 @@ if __name__ == "__main__":
     )
 
     #stepper = MidpointFEM(lattice, basis, problem)
-    stepper = ThetaScheme(1, lattice, basis, problem)
+    #stepper = ThetaScheme(1, lattice, basis, problem)
     #stepper = MidpointIP(GalerkinSolver(problem))
     #stepper = RK4IP(GalerkinSolver(problem))
+    stepper = DifferentialWeakMethod(lattice, problem)
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper, resolution=resolution)
 
@@ -72,7 +73,7 @@ if __name__ == "__main__":
             verbose=True, 
             pbar=False, 
             seed=1,
-            check=True,
+            check=False,
     )
 
     ensemble_solver.solve()
