@@ -12,21 +12,20 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 10
-    steps = 5000
+    points = 30
+    steps = 2000
     resolution = 10
-    tmax = 5
-    blocks = 16
+    tmax = 1
+    blocks = 4
     samples = 4
     processes = 4
 
-    sigma = sqrt(0.5)
+    sigma = 0.5
     k = -1
 
     boundaries = [
         Dirichlet(1),
-        Robin(lambda u: (k - sigma**2)*u)
-        #Dirichlet(0)
+        Robin(lambda u: k*u)
     ]
 
     lattice = Lattice(0, 1, points, boundaries)
@@ -40,8 +39,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: -d1(u)**2/u,
-        lambda u: sqrt(2)*sigma*u,
+        lambda u: -k**2*u,
+        lambda u: sqrt(2)*sigma,
         noise
     )
 
@@ -51,11 +50,11 @@ if __name__ == "__main__":
         lattice
     )
 
-    #stepper = MidpointFEM(lattice, basis, problem)
-    #stepper = ThetaScheme(1, lattice, basis, problem)
-    #stepper = MidpointIP(GalerkinSolver(problem))
-    #stepper = RK4IP(GalerkinSolver(problem))
-    stepper = DifferentialWeakMethod(lattice, problem)
+    stepper = MidpointFEM(lattice, basis, problem, solver=lambda f, x: opt.broyden1(f, x, iter=2))
+    #stepper = ThetaScheme(1., lattice, basis, problem)
+    #stepper = MidpointIP(SpectralSolver(problem))
+    #stepper = RK4IP(SpectralSolver(problem))
+    #stepper = DifferentialWeakMethod(lattice, problem)
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper, resolution=resolution)
 
@@ -73,7 +72,7 @@ if __name__ == "__main__":
             verbose=True, 
             pbar=False, 
             seed=1,
-            check=False,
+            check=True,
     )
 
     ensemble_solver.solve()
@@ -121,8 +120,6 @@ if __name__ == "__main__":
              np.exp((2*k + sigma**2)*ts),
              label=r"Analytical solution")
 
-    fig, ax = vis.at_origin()
     taus = vis.taxis
-    ax.plot(taus, np.exp(k*taus))
 
     plt.show()
