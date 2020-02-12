@@ -139,7 +139,7 @@ class SpectralBasis(BasisSet):
         return (self._sol_to_fem @ lattice_points.T).reshape(lattice_points.shape)
 
     def lattice_values(self, coefficients):
-        return (self._fem_to_sol @ coefficients).reshape(coefficients.shape)
+        return (self._fem_to_sol @ coefficients.T).reshape(coefficients.shape)
 
     def member(self, index):
         return self._functions[index]

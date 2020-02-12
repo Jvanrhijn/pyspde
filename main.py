@@ -11,27 +11,27 @@ from examples.potentials import *
 
 if __name__ == "__main__":
 
-    coeff = 1
-    points = 31
+    coeff = 0
+    points = 1
     steps = 1000
     resolution = 10
-    tmax = 2.5
-    blocks = 16
-    samples = 4
-    processes = 4
+    tmax = 5
+    blocks = 1
+    samples = 1
+    processes = 1
 
-    sigma = 0.5
+    sigma = 0.0
     k = -1
 
     boundaries = [
         Dirichlet(1.0),
-        Robin(lambda u: k*u)
+        Robin(lambda u: (k - sigma**2)*u)
         #Dirichlet(0)
     ]
 
     lattice = Lattice(0, 1, points, boundaries)
-    #basis = FiniteElementBasis(lattice, boundaries)
-    basis = SpectralBasis(lattice, boundaries)
+    basis = FiniteElementBasis(lattice, boundaries)
+    #basis = SpectralBasis(lattice, boundaries)
 
     u0 = np.ones((1, points))
     noise = WhiteNoise(1) 
@@ -40,8 +40,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: -d1(u)**2/u,
-        lambda u: sigma*u*sqrt(2),
+        lambda u: k*u,
+        lambda u: sigma*u,
         noise
     )
 
@@ -51,8 +51,8 @@ if __name__ == "__main__":
         lattice
     )
 
-    #stepper = MidpointFEM(lattice, basis)
-    stepper = ThetaScheme(1, lattice, basis)
+    #stepper = MidpointFEM(lattice, basis, problem)
+    stepper = ThetaScheme(1, lattice, basis, problem)
     #stepper = MidpointIP(GalerkinSolver(problem))
     #stepper = RK4IP(GalerkinSolver(problem))
 
@@ -119,5 +119,9 @@ if __name__ == "__main__":
     ax3.plot(ts,
              np.exp((2*k + sigma**2)*ts),
              label=r"Analytical solution")
+
+    fig, ax = vis.at_origin()
+    taus = vis.taxis
+    ax.plot(taus, np.exp(k*taus))
 
     plt.show()

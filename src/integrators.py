@@ -88,11 +88,11 @@ class RK4IP(Integrator):
 
 class MidpointFEM(Integrator):
 
-    def __init__(self, lattice, basis, midpoint_iters=3):
+    def __init__(self, lattice, basis, problem, midpoint_iters=3):
         super().__init__()
         self._midpoint_iters = midpoint_iters
         self._m = basis.mass()
-        self._n = basis.stiffness()
+        self._n = basis.stiffness()*problem.spde.linear
         self._minv = np.linalg.inv(self._m)
         self._q = self._minv @ self._n
         points = self._m.shape[0]
@@ -122,21 +122,31 @@ class MidpointFEM(Integrator):
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
 
+        # extract FEM coefficients
         vs = self._basis.coefficients(field - boundary)
-        a = self.drift_integral(vs, problem)
-        b = np.zeros(a.shape)
-        g = self.boundary(vs, problem)
+
+        # for the first iteration, ignore the drift and volatility
+        a = np.zeros(vs.shape)
+        b = np.zeros(vs.shape)
+
+        g = self.boundary(vs, problem) * problem.spde.linear
 
         # compute next timestep iteratively
         vbar = vs
         for _ in range(self._midpoint_iters):
             d = a + b
+            # do a Newton iteration
+            # TODO: compute the correct Jacobian, as it currently assumes
+            # d is evaluated at the start of the time interval
             vbar -= (self._jacobian_inv @ (vs.T - self._dt * self._q @ (vbar.T  + d.T + g.T) \
                 + d.T + g.T - vbar.T)).reshape(vbar.shape)
+            # approximate the midpoint value
             vmidpoint = 0.5 * (vs + vbar)
+            # compute the drift and volatility integrals at the midpoint
+            a = self.drift_integral(vmidpoint, problem)
             b = self.volatility_integral(vmidpoint, w, problem)
         self._time += self._dt
-        return boundary.reshape(vs.shape) + self._basis.lattice_values(vbar)
+        return (boundary.reshape(vs.shape) + self._basis.lattice_values(vbar)).reshape(field.shape)
             
     def drift_integral(self, vs, problem):
         u_midpoint = (problem.left() \
@@ -164,14 +174,13 @@ class MidpointFEM(Integrator):
             raise NotImplementedError("Boundary combination not yet implemented")
 
 
-
 class ThetaScheme(Integrator):
     
-    def __init__(self, theta, lattice, basis):
+    def __init__(self, theta, lattice, basis, problem):
         super().__init__()
         self._theta = theta
         self._m = basis.mass()
-        self._n = basis.stiffness()
+        self._n = basis.stiffness() * problem.spde.linear
         self._minv = np.linalg.inv(self._m)
         self._q = self._minv @ self._n
         points = self._m.shape[0]
@@ -194,8 +203,8 @@ class ThetaScheme(Integrator):
     def step(self, field, problem, average=False):
         dx = problem.lattice.increment
         midpoints = len(problem.lattice.midpoints)
-        w = problem.spde.noise(self._time + 0.5*self._dt, dx, midpoints, average=average)
-        #return self._step_midpoint(field, w)
+        # compute noise at the start of the interval
+        w = problem.spde.noise(self._time, dx, midpoints, average=average)
         return self._step(field, problem, w)
             
     def _step(self, field, problem, w):
@@ -206,15 +215,11 @@ class ThetaScheme(Integrator):
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
         vs = self._basis.coefficients(field - boundary)
-        a = self.drift_integral(vs, problem)
-        b = self.volatility_integral(vs, w, problem)
-        d = a + b
+        d = self.drift_integral(vs, problem) + self.volatility_integral(vs, w, problem)
         g = self.boundary(vs, problem)
         self._time += self._dt
-        # compute next timestep iteratively
-        return (boundary.reshape(vs.T.shape) \
-            + self._basis.lattice_values(self._gamma @ (vs.T + d.T + g.T)))\
-                .reshape(field.shape)
+        return (boundary.reshape(field.shape) \
+            + self._basis.lattice_values((self._gamma @ (vs.T + d.T + g.T)).reshape(field.shape)))
 
     def drift_integral(self, vs, problem):
         u_midpoint = (problem.left() \

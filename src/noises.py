@@ -28,13 +28,13 @@ class WhiteNoise:
         self._rng = np.random.RandomState(seed=self._seed)
 
     def __call__(self, t, dx, dimension, average=False):
-        self._value = np.zeros(dimension)
+        self._value = np.zeros((1, dimension))
         if t < self._time:
             raise ValueError("Can't compute white noise into the past")
         dt = t - self._time
         # special case: if called at the same time point, return same value as previous
         if dt == 0.0:
-            return self._value.reshape((dimension, 1))
+            return self._value
 
         factor = 2 if average else 1
 
