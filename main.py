@@ -13,18 +13,18 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 30
-    steps = 1000
-    resolution = 10
+    points = 15
+    steps = 500
+    resolution = 2
     tmax = 5
     #blocks = 128
     #samples = 64
     #processes = 4
-    blocks = 1
-    samples = 1
-    processes = 1
+    blocks = 16
+    samples = 4
+    processes = 4
 
-    sigma = 0.
+    sigma = 0.5
     k = -1
 
     boundaries = [
@@ -38,29 +38,10 @@ if __name__ == "__main__":
     #basis = SpectralBasis(lattice, boundaries)
 
     u0 = np.ones((1, points))
-    f = lambda x: (x**3).reshape((1, x.size))
-    u0 = f(lattice.points)
-    u0_mp = f(lattice.midpoints)
 
     noise = WhiteNoise(1) 
 
     d1 = DerivativeOperator(1, lattice, boundaries)
-    #d1 = SpectralDerivative(1, lattice, basis, boundaries)
-
-    # compute derivative using spectral operator
-    #phi_lattice = basis(lattice.points).sum(axis=1)
-    # get expansion coefficients
-    vs = basis.lattice_values(u0_mp - boundaries[0]())
-    print(vs)
-    phi_deriv = basis(lattice.midpoints, derivative=True)
-    dudx = phi_deriv.T @ vs.T
-
-    plt.figure()
-    plt.plot(lattice.midpoints, dudx.flatten(), label="Galerkin derivative")
-    plt.plot(lattice.points, d1(u0).flatten(), '-.', label="FD")
-    plt.legend()
-    plt.show()
-
 
     multinoise_volatility = lambda u: sigma*sqrt(2)*np.sqrt(1 + u**2)
     multinoise_drift = lambda u: -d1(u)**2 * u/(1 + u**2) - (k - sigma**2)**2 * u / (1 + u**2) \
@@ -74,12 +55,8 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        #gaussian_drift,
-        #gaussian_volatility,
-        multinoise_drift_backtrans,
-        multinoise_volatility,
-        #lambda u: -d1(u)**2 / u + 4*sigma**2*u,
-        #lambda u: sqrt(2)*u*sigma,
+        lambda u: -d1(u)**2 / u + 4*sigma**2*u,
+        lambda u: sqrt(2)*u*sigma,
         noise
     )
 
@@ -123,8 +100,8 @@ if __name__ == "__main__":
     step_errors = ensemble_solver.step_errors["value"]
     sample_errors = ensemble_solver.sample_errors["value"]
 
-    print(f"Max step error =   {step_errors.max()}")
-    print(f"Max sample error = {sample_errors.max()}")
+    print(f"Max step error =   {step_errors[:, -1].max()}")
+    print(f"Max sample error = {sample_errors[:, -1].max()}")
 
     vis = Visualizer(mean, (0, tmax), lattice,
                      sample_error=ensemble_solver.sample_errors["value"][field],
