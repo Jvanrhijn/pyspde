@@ -208,7 +208,7 @@ class ThetaScheme(Integrator):
         return self._step(field, problem, w)
             
     def _step(self, field, problem, w):
-        boundary = self.get_boundary(field, problem)
+        boundary = self.get_boundary(field, self._xs, problem)
         vs = self._basis.coefficients(field - boundary)
         d = self.drift_integral(vs, problem) + self.volatility_integral(vs, w, problem)
         g = self.boundary(vs, problem) * problem.spde.linear
@@ -218,18 +218,18 @@ class ThetaScheme(Integrator):
 
     def drift_integral(self, vs, problem):
         if problem.spde.linear != 0:
-            boundary = self.get_boundary(vs, problem)
+            boundary = self.get_boundary(vs, self._xs_midpoint, problem)
             u_midpoint = (boundary \
-                + (self._phi_midpoint.T @ vs.T)).T
+                + (self._phi_midpoint.T @ vs.T).T)
             return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
                 .reshape(vs.shape)
         else:
             return problem.spde.drift(vs)*self._dt
 
     def volatility_integral(self, vs, w, problem):
-        boundary = self.get_boundary(vs, problem)
+        boundary = self.get_boundary(vs, self._xs_midpoint, problem)
         u_midpoint = (boundary \
-            + (self._phi_midpoint.T @ vs.T)).T
+            + (self._phi_midpoint.T @ vs.T).T)
         return (self._minv.T @ (self._phi_midpoint * (problem.spde.volatility(u_midpoint)*w*self._dx*self._dt)).sum(axis=1)) \
             .reshape(vs.shape)
     
@@ -246,11 +246,11 @@ class ThetaScheme(Integrator):
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
 
-    def get_boundary(self, field, problem):
+    def get_boundary(self, field, xs, problem):
         if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
             return problem.left() * np.ones(field.shape)
         elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            return problem.left() + (problem.right() - problem.left())*(self._xs - problem.lattice.range[0])
+            return problem.left() + (problem.right() - problem.left())*(xs - problem.lattice.range[0])
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
 

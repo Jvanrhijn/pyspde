@@ -72,9 +72,16 @@ class FiniteElementBasis(BasisSet):
         # FEM transformation is identity
         return coefficients
 
-    def coefficients(self, coefficients):
+    def coefficients(self, lattice_values):
         # FEM transformation is identity
-        return coefficients
+        return lattice_values
+
+    def coefficients_generic(self, values, xs):
+        # for any lattice points, we can generate the matrix:
+        phis = self(xs)
+        # take the first N columns and transform with that
+        return (np.linalg.inv(phis[:, :-1].T) @ values[:, :-1].T).reshape((1, xs.size-1))
+
 
     def _basis_hat(self, n, x):
         dx = self._dx
