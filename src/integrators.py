@@ -226,10 +226,10 @@ class ThetaScheme(Integrator):
         vs = self._basis.coefficients(field - boundary)
         d = self.drift_integral(vs, problem) + self.volatility_integral(vs, w, problem)
         g = self.boundary(vs, problem) * problem.spde.linear
-        c = self.christoffel_integral(vs, field, problem)
+        c = self.christoffel_integral(vs, problem)
         self._time += self._dt
         return (boundary.reshape(field.shape) \
-            + self._basis.lattice_values((self._gamma @ (vs.T + d.T + g.T + c.T)).reshape(field.shape)))
+            + self._basis.lattice_values((self._gamma @ (vs + d + g + c).T).reshape(field.shape)))
 
     def drift_integral(self, vs, problem):
         if problem.spde.linear != 0:
@@ -248,21 +248,21 @@ class ThetaScheme(Integrator):
         return (self._minv.T @ (self._phi_midpoint * (problem.spde.volatility(u_midpoint)*w*self._dx*self._dt)).sum(axis=1)) \
             .reshape(vs.shape)
 
-    def christoffel_integral(self, vs, field, problem):
+    def christoffel_integral(self, vs, problem):
         if problem.spde.linear != 0:
-            boundary, boundary_deriv = self.get_boundary(vs, self._xs_midpoint, problem)
+            boundary = self.get_boundary(vs, self._xs_midpoint, problem)[0]
             u_midpoint = boundary \
                 + (self._phi_midpoint.T @ vs.T).T
             # compute derivative via finite elements
             # TODO: generalize boundary conditions
-            boundary_term = self._dx * (self._psi_midpoint * problem.right(self._xs_midpoint)).sum(axis=1)
+            boundary_term = self._dx * (self._psi_midpoint.T @ problem.right(u_midpoint).T)
             deriv_coeffs = self._pinv @ (-boundary_term + self._o @ vs.T)
-            deriv_midpoint = problem.right(self._xs_midpoint) \
-                + (self._psi_midpoint * deriv_coeffs).sum(axis=0)
+            deriv_midpoint = problem.right(u_midpoint).T \
+                + (self._psi_midpoint.T @ deriv_coeffs)
             # evaluate christoffel integral
-            return (self._minv.T @ (self._phi_midpoint *\
-                (problem.spde.christoffel(u_midpoint)*deriv_midpoint**2*self._dx*self._dt))\
-                .sum(axis=1)) \
+            return self._dx * self._dt * (self._minv.T @ (self._phi_midpoint *
+                (problem.spde.christoffel(u_midpoint) * deriv_midpoint.T**2))\
+                .sum(axis=1))\
                 .reshape(vs.shape)
         else:
             return 0

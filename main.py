@@ -13,9 +13,9 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 20
-    steps = 1000
-    resolution = 2
+    points = 50
+    steps = 5000
+    resolution = 10
     tmax = 5
     #blocks = 128
     #samples = 64
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     boundaries = [
         Dirichlet(1),
         #Dirichlet(0),
-        Robin(lambda u: k*u)
+        Robin(lambda u: k*u),
         #Robin(lambda u: -sigma*u*np.exp(-u**2))
     ]
 
@@ -46,7 +46,7 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        lambda u: 0.5*sigma**2*u,
+        lambda u: 0,
         lambda u: -1/u,
         lambda u: sqrt(2)*u*sigma,
         noise
