@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from functools import partial
 
 import numpy as np
-from scipy.fftpack import dst, idst, dct, idct
+from scipy.fftpack import dst, idst, dct, idct, fft, ifft
 from scipy.linalg import expm
 from scipy.integrate import quad
 
@@ -194,3 +194,24 @@ class SpectralSolver(LinearSolver):
 
         out = self._left + self._xs.T*self._right(u_boundary) + idst(vhat, type=3, norm='ortho')
         return out.reshape(u.shape)
+
+
+class SpectralPeriodic(LinearSolver):
+
+    def __init__(self, problem):
+        points = len(problem.lattice.points)
+        ns = np.arange(1, points+1)
+        self._d = (ns * np.pi)**2
+        self._propagator = None
+
+    def set_timestep(self, dt):
+        self._propagator = np.exp(-self._d * dt)
+        self._dt = dt
+
+    def propagate_step(self, u, problem):
+        # transform to Fourier space
+        uhat = fft(u)
+        # propagate
+        uhat *= self._propagator
+        # transform back
+        return np.abs(ifft(uhat))

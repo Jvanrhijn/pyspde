@@ -21,6 +21,8 @@ class Boundary(Enum):
 
     DIRICHLET = 1
     ROBIN = 2
+    PERIODIC = 3
+
 
 class BoundaryCondition(ABC):
 
@@ -59,6 +61,15 @@ class Robin(BoundaryCondition):
         return Boundary.ROBIN
 
 
+class Periodic(BoundaryCondition):
+
+    def __call__(self, *args):
+        return None
+
+    def kind(self):
+        return Boundary.PERIODIC
+
+
 class Lattice:
 
     def __init__(self, origin, end, points, boundaries):
@@ -66,8 +77,8 @@ class Lattice:
         self._end = end
         #if origin != 0 or end != 1:
         #    raise NotImplementedError("Only unit spatial interval supported")
-        include_left = not boundaries[0].kind() == Boundary.DIRICHLET
-        include_right = not boundaries[1].kind() == Boundary.DIRICHLET
+        include_left = not (boundaries[0].kind() == Boundary.DIRICHLET or boundaries[0].kind() == Boundary.PERIODIC)
+        include_right = not (boundaries[1].kind() == Boundary.DIRICHLET or boundaries[1].kind() == Boundary.PERIODIC)
         if include_left and include_right:
             self._increment = (end - origin)/points
             self._points = np.arange(origin, end + self._increment, self._increment)
@@ -101,9 +112,10 @@ class Lattice:
 
 class SPDE:
 
-    def __init__(self, linear, drift, volatility, noise):
+    def __init__(self, linear, drift, christoffel, volatility, noise):
         self.linear = linear
         self.drift = drift
+        self.christoffel = christoffel
         self.volatility = volatility
         self.noise = noise
 

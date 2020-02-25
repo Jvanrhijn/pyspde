@@ -1,5 +1,5 @@
 from src.spde import *
-from src.linear_solvers import GalerkinSolver, SpectralSolver
+from src.linear_solvers import GalerkinSolver, SpectralSolver, SpectralPeriodic
 from src.noises import WhiteNoise
 from src.visualizer import Visualizer
 from src.integrators import *
@@ -13,23 +13,24 @@ from examples.potentials import *
 if __name__ == "__main__":
 
     coeff = 1
-    points = 15
-    steps = 500
+    points = 20
+    steps = 1000
     resolution = 2
     tmax = 5
     #blocks = 128
     #samples = 64
     #processes = 4
-    blocks = 16
+    blocks = 4
     samples = 4
     processes = 4
 
-    sigma = 0.5
+    sigma = 0.25
     k = -1
 
     boundaries = [
         Dirichlet(1),
-        Robin(lambda u: (k + 0.5*sigma**2)*u)
+        #Dirichlet(0),
+        Robin(lambda u: k*u)
         #Robin(lambda u: -sigma*u*np.exp(-u**2))
     ]
 
@@ -37,25 +38,16 @@ if __name__ == "__main__":
     basis = FiniteElementBasis(lattice, boundaries)
     #basis = SpectralBasis(lattice, boundaries)
 
-    u0 = np.ones((1, points))
+    u0 = np.ones(lattice.points.shape)
 
     noise = WhiteNoise(1) 
 
     d1 = DerivativeOperator(1, lattice, boundaries)
 
-    multinoise_volatility = lambda u: sigma*sqrt(2)*np.sqrt(1 + u**2)
-    multinoise_drift = lambda u: -d1(u)**2 * u/(1 + u**2) - (k - sigma**2)**2 * u / (1 + u**2) \
-        + 4*sigma**2 * u 
-
-    multinoise_drift_backtrans = lambda u: -u/(1 + u**2) * d1(u)**2 - (k**2 + 0.25*sigma**4) * (1 - u**2/(1 + u**2))*u \
-        + 4*sigma**2 * u
-
-    gaussian_volatility = lambda u: sqrt(2) * sigma * np.exp(-u**2/2)
-    gaussian_drift = lambda u: u*d1(u)**2 + sigma**4 * np.exp(-2*u**2) * (u**3 - 1.5*u) + 2 * sigma**2 * -2*u * np.exp(-u**2)
-
     spde = SPDE(
         coeff,
-        lambda u: -d1(u)**2 / u + 4*sigma**2*u,
+        lambda u: 0.5*sigma**2*u,
+        lambda u: -1/u,
         lambda u: sqrt(2)*u*sigma,
         noise
     )
@@ -71,6 +63,7 @@ if __name__ == "__main__":
     #stepper = MidpointIP(SpectralSolver(problem))
     #stepper = RK4IP(SpectralSolver(problem))
     #stepper = DifferentialWeakMethod(lattice, problem)
+    #stepper = MidpointIP(GalerkinSolver(problem))
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper, resolution=resolution)
 
@@ -163,9 +156,9 @@ if __name__ == "__main__":
     fig3, ax3 = vis2.steady_state(
         'o', label="Numerical solution", marker='o', linestyle='-.')
     ax3.plot(ts, np.exp((2*k + sigma**2)*ts), label="Geometric Brownian Motion")
-    ax3.plot(ts, 
-    (boundaries[0]()**2 + sigma**2/(2*k + sigma**2))*np.exp((2*k+sigma**2)*ts) - sigma**2/(2*k + sigma**2),
-    label="Multinoise")
+    #ax3.plot(ts, 
+    #(boundaries[0]()**2 + sigma**2/(2*k + sigma**2))*np.exp((2*k+sigma**2)*ts) - sigma**2/(2*k + sigma**2),
+    #label="Multinoise")
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.legend()
@@ -173,5 +166,7 @@ if __name__ == "__main__":
     #taus = vis.taxis
     #fig, ax = vis.at_origin()
     #ax.plot(taus, np.exp(k*taus), linestyle='-.')
+
+    print(np.linalg.norm(mean[-1])/points)
 
     plt.show()

@@ -182,6 +182,18 @@ class ThetaScheme(Integrator):
         self._m = basis.mass()
         self._n = basis.stiffness() * problem.spde.linear
         self._minv = np.linalg.inv(self._m)
+
+        # TODO: generalize for different boundary conditions
+        points = len(lattice.points)
+        dx = lattice.increment
+        self._p = (np.diag(np.ones(points)*2/3) \
+            + np.diag(np.ones(points-1)*1/6, k=1)\
+            + np.diag(np.ones(points-1)*1/6, k=-1))*dx
+        self._p[0, 0] = 2*dx/3
+        self._pinv = np.linalg.inv(self._p)
+        self._o = np.diag(np.ones(len(lattice.points))*0.5)\
+                + np.diag(np.ones(len(lattice.points)-2)*-0.5, k=-2)
+
         self._q = self._minv @ self._n
         points = self._m.shape[0]
         self._dt = 0
@@ -194,6 +206,8 @@ class ThetaScheme(Integrator):
         self._time = 0
         self._ident = np.eye(points)
         self._basis = basis
+        self._psis = [basis.member(i) for i in range(-1, points-1)]
+        self._psi_midpoint = np.array([psi(self._xs_midpoint) for psi in self._psis])
         
     def set_timestep(self, time_step):
         self._dt = time_step
@@ -208,17 +222,18 @@ class ThetaScheme(Integrator):
         return self._step(field, problem, w)
             
     def _step(self, field, problem, w):
-        boundary = self.get_boundary(field, self._xs, problem)
+        boundary = self.get_boundary(field, self._xs, problem)[0]
         vs = self._basis.coefficients(field - boundary)
         d = self.drift_integral(vs, problem) + self.volatility_integral(vs, w, problem)
         g = self.boundary(vs, problem) * problem.spde.linear
+        c = self.christoffel_integral(vs, field, problem)
         self._time += self._dt
         return (boundary.reshape(field.shape) \
-            + self._basis.lattice_values((self._gamma @ (vs.T + d.T + g.T)).reshape(field.shape)))
+            + self._basis.lattice_values((self._gamma @ (vs.T + d.T + g.T + c.T)).reshape(field.shape)))
 
     def drift_integral(self, vs, problem):
         if problem.spde.linear != 0:
-            boundary = self.get_boundary(vs, self._xs_midpoint, problem)
+            boundary = self.get_boundary(vs, self._xs_midpoint, problem)[0]
             u_midpoint = (boundary \
                 + (self._phi_midpoint.T @ vs.T).T)
             return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
@@ -227,12 +242,31 @@ class ThetaScheme(Integrator):
             return problem.spde.drift(vs)*self._dt
 
     def volatility_integral(self, vs, w, problem):
-        boundary = self.get_boundary(vs, self._xs_midpoint, problem)
+        boundary = self.get_boundary(vs, self._xs_midpoint, problem)[0]
         u_midpoint = (boundary \
             + (self._phi_midpoint.T @ vs.T).T)
         return (self._minv.T @ (self._phi_midpoint * (problem.spde.volatility(u_midpoint)*w*self._dx*self._dt)).sum(axis=1)) \
             .reshape(vs.shape)
-    
+
+    def christoffel_integral(self, vs, field, problem):
+        if problem.spde.linear != 0:
+            boundary, boundary_deriv = self.get_boundary(vs, self._xs_midpoint, problem)
+            u_midpoint = boundary \
+                + (self._phi_midpoint.T @ vs.T).T
+            # compute derivative via finite elements
+            # TODO: generalize boundary conditions
+            boundary_term = self._dx * (self._psi_midpoint * problem.right(self._xs_midpoint)).sum(axis=1)
+            deriv_coeffs = self._pinv @ (-boundary_term + self._o @ vs.T)
+            deriv_midpoint = problem.right(self._xs_midpoint) \
+                + (self._psi_midpoint * deriv_coeffs).sum(axis=0)
+            # evaluate christoffel integral
+            return (self._minv.T @ (self._phi_midpoint *\
+                (problem.spde.christoffel(u_midpoint)*deriv_midpoint**2*self._dx*self._dt))\
+                .sum(axis=1)) \
+                .reshape(vs.shape)
+        else:
+            return 0
+
     def boundary(self, vs, problem):
         coefficients = vs.reshape(self._phi_right.shape)
         if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
@@ -248,9 +282,10 @@ class ThetaScheme(Integrator):
 
     def get_boundary(self, field, xs, problem):
         if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
-            return problem.left() * np.ones(field.shape)
+            return problem.left() * np.ones(field.shape), 0
         elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            return problem.left() + (problem.right() - problem.left())*(xs - problem.lattice.range[0])
+            slope = problem.right() - problem.left()
+            return problem.left() + slope*(xs - problem.lattice.range[0]), slope
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
 

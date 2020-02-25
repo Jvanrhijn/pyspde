@@ -20,9 +20,11 @@ class DerivativeOperator:
             # handle boundaries: low end
             if self._left.kind() == Boundary.DIRICHLET:
                 derivative[:, 0] = derivative[:, 1]
+            elif self._left.kind() == Boundary.PERIODIC and self._right.kind() == Boundary.PERIODIC:
+                derivative = (np.roll(u, 1) - np.roll(u, -1)) / (2*self._dx)
+                return derivative
             else:
                 raise NotImplementedError("Finite difference not implemented for given BC combination")
-
             # handle boundaries: high end
             if self._right.kind() == Boundary.DIRICHLET:
                 derivative[:, -1] = derivative[:, -2]

@@ -33,6 +33,10 @@ class BasisSet(ABC):
     def mass(self):
         pass
 
+    @abstractmethod
+    def mixed(self):
+        pass
+
 
 class FiniteElementBasis(BasisSet):
 
@@ -52,6 +56,11 @@ class FiniteElementBasis(BasisSet):
             + np.diag(np.ones(self._dimension-1)*1/6, k=1)\
             + np.diag(np.ones(self._dimension-1)*1/6, k=-1))*self._dx
         self._mass[-1, -1] = self._dx/3 if boundaries[1].kind() == Boundary.ROBIN else 2*self._dx/3
+        # compute mixed matrix
+        self._mixed = (np.diag(np.zeros(self._dimension)) \
+            + np.diag(np.ones(self._dimension-1)*-0.5, k=-1) \
+            + np.diag(np.ones(self._dimension-1)*0.5, k=1))
+        # TODO: fix boundaries of mixed matrix
 
     def member(self, index):
         return self._functions[index]
@@ -67,6 +76,9 @@ class FiniteElementBasis(BasisSet):
 
     def mass(self):
         return self._mass
+
+    def mixed(self):
+        return self._mixed
 
     def lattice_values(self, coefficients):
         # FEM transformation is identity
