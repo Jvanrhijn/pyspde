@@ -1,54 +1,118 @@
 from src.spde import *
 from src.linear_solvers import GalerkinSolver, SpectralSolver, SpectralPeriodic
-from src.noises import WhiteNoise
+from src.noises import WhiteNoise, MollifiedWhiteNoise, GaussianMollifiedNoise
 from src.visualizer import Visualizer
 from src.integrators import *
 from src.basis import *
-from src.deriv import SpectralDerivative
+from src.deriv import *
+
+from math import log, pi
 
 from mpl_toolkits import mplot3d
-from examples.potentials import *
 
 
 if __name__ == "__main__":
 
     coeff = 1
-    points = 50
-    steps = 5000
-    resolution = 10
-    tmax = 5
-    #blocks = 128
-    #samples = 64
-    #processes = 4
+    points = 60
+    dx = 1/points
+    tmax = 2
+    steps = 1000
+    resolution = 2
     blocks = 4
     samples = 4
     processes = 4
 
-    sigma = 0.25
+    sigma = 0.5
     k = -1
 
     boundaries = [
-        Dirichlet(1),
         #Dirichlet(0),
-        Robin(lambda u: k*u),
-        #Robin(lambda u: -sigma*u*np.exp(-u**2))
+        #Dirichlet(0),
+        Dirichlet(1),
+        Robin(lambda u: (k-sigma**2)*u)
     ]
 
-    lattice = Lattice(0, 1, points, boundaries)
+    lattice = Lattice(-1, 1, points, boundaries)
     basis = FiniteElementBasis(lattice, boundaries)
     #basis = SpectralBasis(lattice, boundaries)
 
-    u0 = np.ones(lattice.points.shape)
+    d2 = LamShinDerivativeSquared(lattice)
+    dc1 = CentralDifference(lattice)
+    db1 = BackwardDifference(lattice)
+    lapl = Laplacian(lattice, boundaries)
 
-    noise = WhiteNoise(1) 
+    #u0 = np.zeros(lattice.points.shape)
+    u0 = np.exp(k*(lattice.points - lattice.range[0]))
 
-    d1 = DerivativeOperator(1, lattice, boundaries)
+    #noise = WhiteNoise(1) 
+    # compute mollifier (normalized)
+    eps = 2*dx
+    #m = lambda x: 1/eps * np.exp(-x**2/(2*eps**2))
+    #m = lambda x: 1/eps * np.exp(1 - 1/(1 - (np.abs(x/eps) - 0.01)**2))
+    def m(x):
+        return np.piecewise(x,
+        [
+            np.abs(x) < 1,
+        ],
+        [
+            lambda x: 1/eps * np.exp(-1/(1 - (x/eps)**2)),
+            0
+        ])
+
+    m = lambda x: 1/sqrt(2*pi*eps**2) * np.exp(-x**2/(2*eps**2))
+    
+    moll = m(lattice.points)
+    moll /= np.trapz(moll, lattice.points)
+
+    # mollified heat kernel
+    ts_fine, h = np.linspace(*lattice.range, points*100, retstep=True)
+    moll_fine = m(ts_fine)
+    moll_fine /= np.trapz(moll_fine, ts_fine)
+    heat_kernel = lambda x: -0.5*x*np.sign(x)
+    moll_hk = np.convolve(moll_fine, heat_kernel(ts_fine)*h, mode="same")
+
+    # renormalization constants
+    c = np.trapz(moll_hk*moll_fine, ts_fine)
+    d_hk = lambda x: -0.5*np.sign(x)
+    moll_dhk = np.convolve(d_hk(ts_fine), moll_fine*h, mode="same")
+    #cbar = np.trapz(moll_dhk**2, ts_fine)
+    cbar = -c/2
+
+    print(c, cbar)
+
+    #noise = MollifiedWhiteNoise(1, moll) 
+    noise = GaussianMollifiedNoise(eps)
+    #noise = WhiteNoise(1)
+
+    def discrete_product(x, y):
+        prod = np.zeros(x.shape)
+        a = 1
+        b = 0.5
+        prod[:, 1:-1] = 1/(2*(a + b)) * (a*x[:, 1:-1] * y[:, 1:-1] \
+            + b*(x[:, 1:-1]*y[:, 2:] + x[:, 2:]*y[:, 1:-1]) \
+            + a*x[:, 2:]*y[:, 2:])
+        # extrapolate boundary points
+        prod[:, 0] = 2*prod[:, 1] - prod[:, 2]
+        prod[:, -1] = 2*prod[:, -2] - prod[:, -3]
+        return prod
+
+    # second term in drift is Stratonovich -> Ito correction
+    # rest are renormalization terms
+    f = lambda u: -1/u
+    #f = lambda u: -u / (1 + u**2)
+    g = lambda u: sqrt(2)*u*sigma
+    #g = lambda u: sqrt(2)*sigma*np.sqrt(1 + u**2)
+    gprime = lambda u: sqrt(2)*sigma
+    #gprime = lambda u: sqrt(2)*sigma *  u / np.sqrt(1 + u**2)
 
     spde = SPDE(
         coeff,
-        lambda u: 0,
-        lambda u: -1/u,
-        lambda u: sqrt(2)*u*sigma,
+        #lambda u, t: 0,
+        lambda u, t: f(u) * (dc1(u)**2 - g(u)**2*cbar) - g(u)*gprime(u)*c,
+        lambda u, t: 0,
+        #lambda u, t: sqrt(2)*sigma,
+        lambda u, t: g(u),
         noise
     )
 
@@ -58,12 +122,10 @@ if __name__ == "__main__":
         lattice
     )
 
-    #stepper = MidpointFEM(lattice, basis, problem, solver=lambda f, x: opt.broyden1(f, x, iter=2))
-    stepper = ThetaScheme(1, lattice, basis, problem)
+    #stepper = ThetaScheme(1, lattice, basis, problem)
     #stepper = MidpointIP(SpectralSolver(problem))
-    #stepper = RK4IP(SpectralSolver(problem))
-    #stepper = DifferentialWeakMethod(lattice, problem)
-    #stepper = MidpointIP(GalerkinSolver(problem))
+    #stepper = RK4IP(GalerkinSolver(problem, basis))
+    stepper = MidpointIP(GalerkinSolver(problem, basis))
 
     solver = TrajectorySolver(problem, steps, tmax, u0, stepper, resolution=resolution)
 
@@ -109,56 +171,26 @@ if __name__ == "__main__":
                           rstride=int(steps/resolution)//mesh_points)
 
     fig2, ax2 = vis.steady_state(
-        label="Numerical solution", marker='o', linestyle='-.')
+        label="Numerical solution", marker='.', linestyle='-.')
 
     ax2.set_ylabel(r"$\langle\phi\rangle$")
     ax2.set_xlabel("t")
 
+    t0 = lattice.range[0]
+    ax2.plot(ts, np.exp(k*(ts - t0)), label="Analytical solution")
 
-    """Obtain the steady-state solution numerically"""
-    """
-    from scipy.integrate import solve_bvp
-    from scipy.interpolate import interp1d
-
-    velocity = ensemble_solver.means["velocity"][field][-1]
-    velocity_squared = ensemble_solver.means["velocitysq"][field][-1]
-
-    vvar = velocity_squared - velocity**2
-    # extrapolate to get variance on extended lattice
-    xs = np.linspace(0, 1, 100)
-    ys = np.ones((2, xs.size))
-
-    v = interp1d(lattice.points, vvar, fill_value="extrapolate")
-
-    def du(t, u):
-        mesh = np.linspace(0, 1, len(u[1]))
-        return np.vstack((u[1], u[1]**2 + v(mesh)))
-    
-    
-    def bc(ua, ub):
-        return np.array([ua[0] - boundaries[0](), ub[0] - boundaries[1]()])
-    
-    
-    res = solve_bvp(du, bc, xs, ys)
-
-
-    ax2.plot(xs, 
-            res.sol(xs)[0],
-            label=r"Analytical solution")
-
-    ax2.legend()
-    """
-    ax2.plot(ts, np.exp(k*ts), label="Analytical solution")
+    #ax2.plot(ts, 0.5*(ts - t0)*(1-0.5*(ts - t0)))
 
     fig, ax = vis2.surface(cstride=points//mesh_points,
                           rstride=int(steps/resolution)//mesh_points)
 
     fig3, ax3 = vis2.steady_state(
-        'o', label="Numerical solution", marker='o', linestyle='-.')
-    ax3.plot(ts, np.exp((2*k + sigma**2)*ts), label="Geometric Brownian Motion")
-    #ax3.plot(ts, 
-    #(boundaries[0]()**2 + sigma**2/(2*k + sigma**2))*np.exp((2*k+sigma**2)*ts) - sigma**2/(2*k + sigma**2),
-    #label="Multinoise")
+        '.', label="Numerical solution", marker='.', linestyle='-.')
+    ax3.plot(ts, np.exp((2*k + sigma**2)*(ts - t0)), label="Geometric Brownian Motion")
+    ax3.plot(ts, np.exp(2*k*(ts - t0)), label="Linear Diffusion")
+    ax3.plot(ts, 
+    (boundaries[0]()**2 + sigma**2/(2*k + sigma**2))*np.exp((2*k+sigma**2)*(ts - t0)) - sigma**2/(2*k + sigma**2),
+    label="Multinoise")
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.legend()
@@ -166,7 +198,5 @@ if __name__ == "__main__":
     #taus = vis.taxis
     #fig, ax = vis.at_origin()
     #ax.plot(taus, np.exp(k*taus), linestyle='-.')
-
-    print(np.linalg.norm(mean[-1])/points)
 
     plt.show()

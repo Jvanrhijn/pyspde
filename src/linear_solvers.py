@@ -6,6 +6,7 @@ from scipy.fftpack import dst, idst, dct, idct, fft, ifft
 from scipy.linalg import expm
 from scipy.integrate import quad
 
+from src.spde import Boundary
 
 class LinearSolver(ABC):
 
@@ -16,50 +17,25 @@ class LinearSolver(ABC):
 
 class GalerkinSolver(LinearSolver):
 
-    def __init__(self, problem):
+    def __init__(self, problem, basis):
         #raise NotImplementedError("Galerkin method not yet implemented")
         """Store data and precompute lots of stuff"""
         self._range = problem.lattice.range
-        points = len(problem.lattice.points)
-        self._xs = np.linspace(self._range[0] + 1/points, self._range[1], points)
+        self._xs = problem.lattice.points
         self._f = problem.left()
         self._g = problem.right
         self._gderiv = lambda u: (self._g(u + 0.001) - self._g(u - 0.001))/0.002
 
-        # assume sine basis, we'll generalize later
-        self._basis_spectral = [partial(self._basis_sine, n)
-                                for n in range(1, points)]\
-            + [lambda x: x - self._range[0]]
-
-        self._basis_spectral_deriv = [partial(self._basis_sine_deriv, n)
-                                      for n in range(1, points)]\
-            + [lambda x: np.ones(x.shape) if isinstance(x, np.ndarray) else 1]
+        self._basis = basis
 
         # precompute Galerkin matrices
-        dim = points
-        self._a = np.zeros((dim, dim))
-        self._b = np.zeros((dim, dim))
-        phi = np.zeros((dim, dim))
-        self._phi_right = np.array(
-            [self._basis_spectral[i](self._xs[-1]) for i in range(dim)])
+        self._b = self._basis.stiffness()
+        self._a = self._basis.mass()
+        self._phi = self._basis(self._xs)
+        self._phi_right = self._phi[:, -1]
 
-        # build a manually
-        ns = np.arange(0, points, 1)
-        k = self.k
-        np.fill_diagonal(self._a, 0.5)
-        self._a[:-1, -1] = self._a[-1, :-1] = np.sin(k(ns[1:]))/k(ns[1:])**2
-        self._a[-1, -1] = 1/3
-
-        # build b manually
-        np.fill_diagonal(self._b, 0.5*k(ns[1:])**2)
-        self._b[:-1, -1] = self._b[-1, :-1] = np.sin(k(ns[1:]))
-        self._b[-1, -1] = 1
-        for i in range(dim):
-            for j in range(dim):
-                phi[i, j] = self._basis_spectral[j](self._xs[i])
-
-        self._fem_to_sol = phi
-        self._sol_to_fem = np.linalg.inv(phi)
+        self._fem_to_sol = self._phi
+        self._sol_to_fem = np.linalg.inv(self._phi)
 
         # more precomputation of useful quantities
         self._d = problem.spde.linear * np.linalg.inv(self._a) @ self._b
@@ -78,10 +54,12 @@ class GalerkinSolver(LinearSolver):
         if problem.spde.linear == 0:
             # do nothing if the linear part is zero
             return function 
-        fem = self._sol_to_fem @ (function.T - self._f)
+        boundary = self.get_boundary(function, self._xs, problem)[0].reshape(function.shape)
+        fem = self._basis.coefficients(function.T - boundary.T)
         fem0 = fem
-        fem = self.newton_iterate(fem, fem0)
-        return (self._f + self._fem_to_sol @ fem).reshape(function.shape)
+        fem = self._contract(fem, fem0)
+        #fem = self.newton_iterate(fem, fem0)
+        return (boundary.reshape(fem.shape) + self._basis.lattice_values(fem)).reshape(function.shape)
 
     def inverse_jacobian(self, function):
         gprime = self._gderiv(self._f + function.T @ self._phi_right)
@@ -118,16 +96,15 @@ class GalerkinSolver(LinearSolver):
         return (np.eye(len(v)) - prop) @ self._b_inv @ self.G(v)\
             + prop @ v0
 
-    def _basis_sine(self, n, x):
-        k = self.k
-        return np.sin(k(n)*(x - self._range[0]))
-
-    def _basis_sine_deriv(self, n, x):
-        k = self.k(n)
-        return k*np.cos(k*(x - self._range[0]))
-
-    def k(self, n):
-        return (n - 0.5)*np.pi / (self._range[1] - self._range[0])
+    def get_boundary(self, field, xs, problem):
+        delta = problem.lattice.range[1] - problem.lattice.range[0]
+        if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
+            return problem.left() * np.ones(field.shape), 0
+        elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
+            slope = (problem.right() - problem.left())/delta
+            return problem.left() + slope*(xs - problem.lattice.range[0]), slope
+        else:
+            raise NotImplementedError("Boundary combination not yet implemented")
 
 
 class SpectralSolver(LinearSolver):

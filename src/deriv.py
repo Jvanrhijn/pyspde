@@ -1,71 +1,72 @@
+from math import sqrt
+
 import numpy as np
 
 from src.spde import Lattice
 from src.spde import Boundary
 
 
-class DerivativeOperator:
+class CentralDifference:
 
-    def __init__(self, order, lattice, boundaries):
-        self._order = order
+    def __init__(self, lattice):
         self._dx = lattice.increment
-        # TODO: implement different boundaries
-        self._left = boundaries[0]
-        self._right = boundaries[1]
 
     def __call__(self, u):
-        if self._order == 1:
-            derivative = np.zeros(u.shape)
-            derivative[:, 1:-1] = (u[:, 2:] - u[:, :-2])/(2*self._dx)
-            # handle boundaries: low end
-            if self._left.kind() == Boundary.DIRICHLET:
-                derivative[:, 0] = derivative[:, 1]
-            elif self._left.kind() == Boundary.PERIODIC and self._right.kind() == Boundary.PERIODIC:
-                derivative = (np.roll(u, 1) - np.roll(u, -1)) / (2*self._dx)
-                return derivative
-            else:
-                raise NotImplementedError("Finite difference not implemented for given BC combination")
-            # handle boundaries: high end
-            if self._right.kind() == Boundary.DIRICHLET:
-                derivative[:, -1] = derivative[:, -2]
-            elif self._right.kind() == Boundary.ROBIN:
-                derivative[:, -1] = self._right(u[:, -1])
-            else:
-                raise NotImplementedError("Finite difference not implemented for given BC combination")
-
-        elif self._order == 2:
-            raise NotImplementedError("Second-order FD not yet implemented")
-            derivative = np.zeros(u.shape)
-            derivative[:, 1:-1] = (u[:, 2:] - 2*u[:, 1:-1] + u[:, :-2])/self._dx**2
-            derivative[:, 0] = derivative[:, 1]
-            derivative[:, -1] = 2 * (self._right(u[:, -1])/self._dx -
-                                  (u[:, -1] - u[:, -2])/self._dx**2)
-        return derivative.reshape(u.shape)
+        derivative = np.zeros(u.shape)
+        # interior points
+        derivative[:, 1:-1] = (u[:, 2:] - u[:, :-2])/(2*self._dx)
+        # extrapolate boundary points
+        derivative[:, 0] = 2*derivative[:, 1] - derivative[:, 2]
+        derivative[:, -1] = 2*derivative[:, -2] - derivative[:, -3]
+        return derivative
 
 
-class SpectralDerivative:
+class Laplacian:
 
-    def __init__(self, order, lattice, basis, boundaries):
-        self._left = boundaries[0]
-        self._right = boundaries[1]
-        self._basis = basis
-        self._lattice = lattice
-        if order != 1:
-            raise NotImplementedError("Only 1st order spectral derivative available")
+    def __init__(self, lattice, boundaries):
+        self._dx = lattice.increment
+        self._g = boundaries[1]
 
-    def __call__(self, u, xs):
-        # get boundary value
-        if self._left.kind() == Boundary.DIRICHLET and self._right.kind() == Boundary.DIRICHLET:
-            boundary_deriv = self._right() - self._left()
-            boundary = (self._left() + boundary_deriv*xs)
-            boundary_lattice = self._left() + boundary_deriv*self._lattice.points
-        else:
-            boundary_deriv = 0
-            boundary = self._left()
-            boundary_lattice = boundary
-        # convert to expansion
-        vs = self._basis.coefficients_generic(u - boundary, xs)
-        # compute derivatives of basis functions
-        phi_deriv = self._basis(xs, derivative=True)
-        # compute and return expansion derivative
-        return (boundary_deriv + phi_deriv.T @ vs.T).reshape(u.shape)
+    def __call__(self, u):
+        derivative = np.zeros(u.shape)
+        # interior points
+        derivative[:, 1:-1] = (u[:, 2:] -2*u[:, 1:-1] + u[:, :-2])/(self._dx**2)
+        # extrapolate boundary at x = 0
+        derivative[:, 0] = 2*derivative[:, 1] - derivative[:, 2]
+        # set boundary at x = 1 according to derivative
+        derivative[:, -1] = 2*(self._g(u[:, -1])/self._dx - (u[:, -1] - u[:, -2])/self._dx**2)
+        return derivative
+
+
+class BackwardDifference:
+
+    def __init__(self, lattice):
+        self._dx = lattice.increment
+
+    def __call__(self, u):
+        derivative = np.zeros(u.shape)
+        # interior points
+        derivative[:, 1:] = (u[:, 1:] - u[:, :-1])/self._dx
+        # extrapolate boundary point
+        derivative[:, 0] = 2*derivative[:, 1] - derivative[:, 2]
+        return derivative
+        
+
+class LamShinDerivativeSquared:
+
+    def __init__(self, lattice):
+        self._dx = lattice.increment
+
+    def __call__(self, u):
+        # TODO: fix
+        # compute square of derivative - inner points
+        forward = u[:, 2:] - u[:, 1:-1]
+        backward = u[:, 1:-1] - u[:, :-2]
+        inner_points = forward**2 + forward*backward + backward**2
+        derivative = np.zeros(u.shape)
+        derivative[:, 1:-1] = inner_points
+        # extrapolate boundary points
+        derivative[:, 0] = 2*derivative[:, 1] - derivative[:, 2]
+        derivative[:, -1] = 2*derivative[:, -2] - derivative[:, -3]
+        return derivative/(3*self._dx**2)
+

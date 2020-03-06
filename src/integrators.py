@@ -19,6 +19,7 @@ class Integrator(ABC):
     def set_timestep(self, dt):
         raise NotImplementedError()
 
+
 class MidpointIP(Integrator):
 
     def __init__(self, linsolve, iterations=4):
@@ -38,7 +39,7 @@ class MidpointIP(Integrator):
         time_step = self._time_step
         a0 = self._linsolve.propagate_step(field, problem)
         a = a0
-        da = lambda a, t, w: problem.spde.drift(a) + problem.spde.volatility(a)*w
+        da = lambda a, t, w: problem.spde.drift(a, self._time) + problem.spde.volatility(a, self._time)*w
         # perform midpoint iteration
         w = problem.spde.noise(self._time + 0.5*time_step, dx, dimension, average=average)
         for _ in range(self._iterations):
@@ -58,7 +59,7 @@ class RK4IP(Integrator):
     def step(self, field, problem, average=False):
         dx = problem.lattice.increment
         dimension = len(problem.lattice.points)
-        da = lambda a, t, w: problem.spde.drift(a) + problem.spde.volatility(a)*w
+        da = lambda a, t, w: problem.spde.drift(a, t) + problem.spde.volatility(a, t)*w
 
         time_step = self._time_step
         field_bar = self._linsolve.propagate_step(field, problem).reshape(field.shape)
@@ -88,92 +89,6 @@ class RK4IP(Integrator):
         self._time_step = dt
 
 
-class MidpointFEM(Integrator):
-
-    def __init__(self, lattice, basis, problem, solver=opt.broyden1):
-        super().__init__()
-        self._m = basis.mass()
-        self._n = basis.stiffness() * problem.spde.linear
-        self._minv = np.linalg.inv(self._m)
-        self._q = self._minv @ self._n
-        self._dt = None 
-        self._dx = lattice.increment
-        self._xs = lattice.points
-        self._xs_midpoint = lattice.midpoints
-        self._phi_midpoint = basis(self._xs_midpoint)
-        self._phi_deriv_midpoint = basis(self._xs_midpoint, derivative=True)
-        self._phi_right = basis(lattice.range[1] - np.finfo(float).eps)
-        self._time = 0
-        self._solver = solver
-        self._basis = basis
-        
-    def set_timestep(self, time_step):
-        self._dt = time_step
-
-    def step(self, field, problem, average=False):
-        dx = problem.lattice.increment
-        midpoints = len(problem.lattice.midpoints)
-        w = problem.spde.noise(self._time + 0.5*self._dt, dx, midpoints, average=average)
-
-        boundary = self.get_boundary(field, problem)
-
-        # extract FEM coefficients
-        vs = self._basis.coefficients(field - boundary).flatten()
-
-        # function whose root to find for the update function
-        def minfunc(x):
-            x = x.flatten()
-            vmid = 0.5 * (vs + x)
-            a = self.drift_integral(vmid, problem)
-            b = self.volatility_integral(vmid, w, problem)
-            d = a + b
-            g = self.boundary(vmid, problem) * problem.spde.linear
-            return (vs.T - self._dt * self._q @ (vmid.T + d.T + g.T) + d.T + g.T - x.T).reshape(x.shape)
-            
-        vbar = self._solver(minfunc, vs)
-
-        self._time += self._dt
-        return (boundary.reshape(vs.shape) + self._basis.lattice_values(vbar)).reshape(field.shape)
-
-    def drift_integral(self, vs, problem):
-        if problem.spde.linear != 0:
-            boundary = self.get_boundary(vs, problem)
-            u_midpoint = (boundary \
-                + (self._phi_midpoint.T @ vs.T)).T
-            return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
-                .reshape(vs.shape)
-        else:
-            return problem.spde.drift(vs)*self._dt
-
-    def volatility_integral(self, vs, w, problem):
-        boundary = self.get_boundary(vs, problem)
-        u_midpoint = (boundary \
-            + (self._phi_midpoint.T @ vs.T)).T
-        return (self._minv.T @ (self._phi_midpoint * (problem.spde.volatility(u_midpoint)*w*self._dx*self._dt)).sum(axis=1)) \
-            .reshape(vs.shape)
-
-    def boundary(self, vs, problem):
-        coefficients = vs.reshape(self._phi_right.shape)
-        if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
-            return (self._minv @ (problem.right(problem.left() + self._phi_right @ coefficients)\
-                *self._phi_right*self._dt))\
-                .reshape(vs.shape)
-        elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            return (problem.left() - problem.right()) * self._dx * self._dt \
-                * (self._minv @ self._phi_deriv_midpoint).sum(axis=1)\
-                .reshape(vs.shape)
-        else:
-            raise NotImplementedError("Boundary combination not yet implemented")
-
-    def get_boundary(self, field, problem):
-        if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
-            return problem.left() * np.ones(field.shape)
-        elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            return problem.left() + (problem.right() - problem.left())*(self._xs - problem.lattice.range[0])
-        else:
-            raise NotImplementedError("Boundary combination not yet implemented")
-
-
 class ThetaScheme(Integrator):
     
     def __init__(self, theta, lattice, basis, problem):
@@ -186,14 +101,6 @@ class ThetaScheme(Integrator):
         # TODO: generalize for different boundary conditions
         points = len(lattice.points)
         dx = lattice.increment
-        self._p = (np.diag(np.ones(points)*2/3) \
-            + np.diag(np.ones(points-1)*1/6, k=1)\
-            + np.diag(np.ones(points-1)*1/6, k=-1))*dx
-        self._p[0, 0] = 2*dx/3
-        self._pinv = np.linalg.inv(self._p)
-        self._o = np.diag(np.ones(len(lattice.points))*0.5)\
-                + np.diag(np.ones(len(lattice.points)-2)*-0.5, k=-2)
-
         self._q = self._minv @ self._n
         points = self._m.shape[0]
         self._dt = 0
@@ -226,17 +133,16 @@ class ThetaScheme(Integrator):
         vs = self._basis.coefficients(field - boundary)
         d = self.drift_integral(vs, problem) + self.volatility_integral(vs, w, problem)
         g = self.boundary(vs, problem) * problem.spde.linear
-        c = self.christoffel_integral(vs, problem)
         self._time += self._dt
         return (boundary.reshape(field.shape) \
-            + self._basis.lattice_values((self._gamma @ (vs + d + g + c).T).reshape(field.shape)))
+            + self._basis.lattice_values((self._gamma @ (vs + d + g).T).reshape(field.shape)))
 
     def drift_integral(self, vs, problem):
         if problem.spde.linear != 0:
             boundary = self.get_boundary(vs, self._xs_midpoint, problem)[0]
             u_midpoint = (boundary \
                 + (self._phi_midpoint.T @ vs.T).T)
-            return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint)*self._dx*self._dt)).sum(axis=1)) \
+            return (self._minv.T @ (self._phi_midpoint * (problem.spde.drift(u_midpoint, self._time)*self._dx*self._dt)).sum(axis=1)) \
                 .reshape(vs.shape)
         else:
             return problem.spde.drift(vs)*self._dt
@@ -245,27 +151,9 @@ class ThetaScheme(Integrator):
         boundary = self.get_boundary(vs, self._xs_midpoint, problem)[0]
         u_midpoint = (boundary \
             + (self._phi_midpoint.T @ vs.T).T)
-        return (self._minv.T @ (self._phi_midpoint * (problem.spde.volatility(u_midpoint)*w*self._dx*self._dt)).sum(axis=1)) \
+        return (self._minv.T @ (self._phi_midpoint * (problem.spde.volatility(u_midpoint, self._time)*w*self._dx*self._dt)).sum(axis=1)) \
             .reshape(vs.shape)
 
-    def christoffel_integral(self, vs, problem):
-        if problem.spde.linear != 0:
-            boundary = self.get_boundary(vs, self._xs_midpoint, problem)[0]
-            u_midpoint = boundary \
-                + (self._phi_midpoint.T @ vs.T).T
-            # compute derivative via finite elements
-            # TODO: generalize boundary conditions
-            boundary_term = self._dx * (self._psi_midpoint.T @ problem.right(u_midpoint).T)
-            deriv_coeffs = self._pinv @ (-boundary_term + self._o @ vs.T)
-            deriv_midpoint = problem.right(u_midpoint).T \
-                + (self._psi_midpoint.T @ deriv_coeffs)
-            # evaluate christoffel integral
-            return self._dx * self._dt * (self._minv.T @ (self._phi_midpoint *
-                (problem.spde.christoffel(u_midpoint) * deriv_midpoint.T**2))\
-                .sum(axis=1))\
-                .reshape(vs.shape)
-        else:
-            return 0
 
     def boundary(self, vs, problem):
         coefficients = vs.reshape(self._phi_right.shape)
@@ -281,10 +169,11 @@ class ThetaScheme(Integrator):
             raise NotImplementedError("Boundary combination not yet implemented")
 
     def get_boundary(self, field, xs, problem):
+        delta = problem.lattice.range[1] - problem.lattice.range[0]
         if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
             return problem.left() * np.ones(field.shape), 0
         elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            slope = problem.right() - problem.left()
+            slope = (problem.right() - problem.left())/delta
             return problem.left() + slope*(xs - problem.lattice.range[0]), slope
         else:
             raise NotImplementedError("Boundary combination not yet implemented")
