@@ -2,8 +2,8 @@ from math import sqrt
 
 import numpy as np
 
-from src.spde import Lattice
-from src.spde import Boundary
+from pyspde.lattice import Lattice
+from pyspde.boundary import Boundary
 
 
 class CentralDifference:

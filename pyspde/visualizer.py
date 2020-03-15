@@ -22,17 +22,17 @@ class Visualizer:
         ax.plot_surface(xs, ts, self._solution, *args, cmap="viridis", **kwargs)
         return fig, ax
 
-    def steady_state(self, *args, **kwargs):
-        ss = self._solution[-1]
+    def steady_state(self, *args, num_eq=1, **kwargs):
+        ss = self._solution[-num_eq:].mean(axis=0)
         fig, ax = plt.subplots(1)
         if self._step_error is not None:
-            step_error = self._step_error[-1]
+            step_error = self._step_error[-num_eq:].mean(axis=0)
             ax.errorbar(self._xs, ss, yerr=step_error, **kwargs)
         else:
             step_error = 0
             ax.plot(self._xs, ss, *args, **kwargs)
         if self._sample_error is not None:
-            error = self._sample_error[-1] + step_error
+            error = self._sample_error[-num_eq:].mean(axis=0) + step_error
             ax.fill_between(self._xs, ss-error, ss+error, alpha=0.25)
         ax.grid(True)
         return fig, ax

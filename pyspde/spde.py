@@ -9,134 +9,13 @@ from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
 
-from src.integral import Integral
+from pyspde.integral import Integral
+
 
 try:
     from tqdm import tqdm
 except ImportError:
     tqdm = lambda s, *args, **kwargs: s
-
-
-class Boundary(Enum):
-
-    DIRICHLET = 1
-    ROBIN = 2
-    PERIODIC = 3
-
-
-class BoundaryCondition(ABC):
-
-    @abstractmethod
-    def __call__(self, *args):
-        pass
-
-    @abstractmethod
-    def kind(self):
-        pass
-
-
-# TODO: generalize to time-dependent BC
-class Dirichlet(BoundaryCondition):
-
-    def __init__(self, value):
-        self._value = value
-
-    def __call__(self, *args):
-        return self._value
-
-    def kind(self):
-        return Boundary.DIRICHLET
-
-
-# TODO: generalize to time-dependent BC
-class Robin(BoundaryCondition):
-
-    def __init__(self, value):
-        self._value = value
-
-    def __call__(self, function, *args):
-        return self._value(function)
-
-    def kind(self):
-        return Boundary.ROBIN
-
-
-class Periodic(BoundaryCondition):
-
-    def __call__(self, *args):
-        return None
-
-    def kind(self):
-        return Boundary.PERIODIC
-
-
-class Lattice:
-
-    def __init__(self, origin, end, points, boundaries):
-        self._origin = origin
-        self._end = end
-        #if origin != 0 or end != 1:
-        #    raise NotImplementedError("Only unit spatial interval supported")
-        include_left = not (boundaries[0].kind() == Boundary.DIRICHLET or boundaries[0].kind() == Boundary.PERIODIC)
-        include_right = not (boundaries[1].kind() == Boundary.DIRICHLET or boundaries[1].kind() == Boundary.PERIODIC)
-        if include_left and include_right:
-            self._increment = (end - origin)/points
-            self._points = np.arange(origin, end + self._increment, self._increment)
-        elif include_left and not include_right:
-            self._increment = (end - origin)/points
-            self._points = np.arange(origin, end, self._increment)
-        elif not include_left and include_right:
-            self._increment = (end - origin)/points
-            self._points = np.arange(origin + self._increment, end + self._increment, self._increment)
-        elif not include_left and not include_right:
-            self._increment = (end - origin)/(points+1)
-            self._points = np.arange(origin + self._increment, end, self._increment)
-        self._midpoints = np.arange(origin + self._increment/2, end, self._increment)
-
-    @property 
-    def points(self):
-        return self._points
-
-    @property
-    def increment(self):
-        return self._increment
-
-    @property
-    def midpoints(self):
-        return self._midpoints
-
-    @property
-    def range(self):
-        return (self._origin, self._end)
-        #return (self._points[0], self._points[-1])
-
-class SPDE:
-
-    def __init__(self, linear, drift, christoffel, volatility, noise):
-        self.linear = linear
-        self.drift = drift
-        self.christoffel = christoffel
-        self.volatility = volatility
-        self.noise = noise
-
-    
-class StochasticPartialProblem:
-
-    def __init__(self, spde, boundaries, lattice):
-        self._spde = spde
-        self._lattice = lattice
-        if len(boundaries) != 2:
-            raise NotImplementedError("Too many boundary conditions: only 1D SPDE supported")
-        self.left = boundaries[0]
-        self.right = boundaries[1]
-
-    @property
-    def spde(self):
-        return self._spde
-
-    @property
-    def lattice(self):
-        return self._lattice
 
 
 class TrajectorySolver:
@@ -150,7 +29,7 @@ class TrajectorySolver:
         self._stepper = stepper
         self._stepper.set_timestep(self._dt)
         self._resolution = resolution
-        self._solution = np.zeros((1, (steps+1)//resolution, len(problem.lattice.points)))
+        self._solution = np.zeros((1, steps//resolution + 1, len(problem.lattice.points)))
         self._solution[:, 0, :] = initial
         self._time = 0
 
@@ -163,7 +42,7 @@ class TrajectorySolver:
         self._steps = steps
         self._dt = self._tmax / steps
         initial = self._solution[:, 0, :]
-        self._solution = np.zeros((1, (steps+1)//self._resolution, len(self._problem.lattice.points)))
+        self._solution = np.zeros((1, steps//self._resolution + 1, len(self._problem.lattice.points)))
         self._solution[:, 0, :] = initial
         self._stepper.set_timestep(self._dt)
 
@@ -176,8 +55,6 @@ class TrajectorySolver:
             if i % self._resolution == 0:
                 self._solution[:, index] = solution
                 index += 1
-            #self._solution[:, i+1] = self._stepper.step(
-            #    self._solution[:, i], self._problem,  average)
 
     @property
     def solution(self):

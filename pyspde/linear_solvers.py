@@ -6,7 +6,8 @@ from scipy.fftpack import dst, idst, dct, idct, fft, ifft
 from scipy.linalg import expm
 from scipy.integrate import quad
 
-from src.spde import Boundary
+from pyspde.boundary import Boundary
+
 
 class LinearSolver(ABC):
 

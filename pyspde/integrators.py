@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import scipy.optimize as opt
 
-from src.basis import FiniteElementBasis
-from src.spde import Boundary
+from pyspde.basis import FiniteElementBasis
+from pyspde.boundary import Boundary
 
 
 class Integrator(ABC):
@@ -175,72 +175,5 @@ class ThetaScheme(Integrator):
         elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
             slope = (problem.right() - problem.left())/delta
             return problem.left() + slope*(xs - problem.lattice.range[0]), slope
-        else:
-            raise NotImplementedError("Boundary combination not yet implemented")
-
-
-class DifferentialWeakMethod(Integrator):
-
-    def __init__(self, lattice, problem, method="midpoint"):
-        super().__init__()
-        print("Warning: DifferentialWeakMethod is experimental!")
-        self._basis = FiniteElementBasis(lattice, [problem.left, problem.right])
-        self._m = self._basis.mass()
-        self._minv = np.linalg.inv(self._m)
-        self._n = self._basis.stiffness()
-        self._xs_midpoint = lattice.midpoints
-        self._phi_midpoint = self._basis(self._xs_midpoint)
-        self._phi_right = self._basis(lattice.range[1]-np.finfo(float).eps)
-        self._dx = lattice.increment
-        self._dt = 0
-
-    def set_timestep(self, dt):
-        self._dt = dt
-
-    def dv(self, vs, problem, average=False):
-        cov = self.covariance(vs, problem)*problem.spde.noise.covariance
-        factor = 2 if average else 1
-        w = np.mean(problem.spde.noise._rng.multivariate_normal(
-            np.zeros(vs.size), factor*cov/(self._dx*self._dx), size=(factor, 1)),
-             axis=0)
-        a = self.drift(vs, problem).reshape(vs.shape)
-        return (self._minv @ (a.T + w.T)).reshape(vs.shape)
-
-    def covariance(self, vs, problem):
-        b = problem.spde.volatility
-        # TODO: arbitrary boundaries
-        u_midpoint = (problem.left() + self._phi_midpoint.T @ vs.T).reshape(vs.shape)
-        off_diag = b(u_midpoint[:, 1:])**2
-        diag = np.zeros(u_midpoint.size)
-        diag[:-1] = b(u_midpoint[:, 1:])**2 + b(u_midpoint[:, :-1])**2
-        diag[-1] = b(u_midpoint[:, -1])**2
-        cov = 0.25/self._dx * (
-            np.diag(off_diag.flatten(), k=1) + np.diag(off_diag.flatten(), k=-1) + np.diag(diag.flatten()))
-        return cov
-
-    def drift(self, vs, problem):
-        u_midpoint = (problem.left() + self._phi_midpoint.T @ vs.T).reshape(vs.shape)
-        a = problem.spde.drift(u_midpoint)
-        u_right = problem.left() + vs @ self._phi_right.T
-        return (self._phi_midpoint * a).sum(axis=1) * self._dx \
-            + problem.right(u_right)*self._phi_right \
-            - (self._n @ vs.T).reshape(vs.shape)
-
-    def step(self, field, problem, average=False):
-        vs = self._basis.coefficients(field - problem.left())
-        time_step = self._dt
-        v0 = vs
-        # perform midpoint iteration
-        for _ in range(3):
-            vs = v0 + 0.5*time_step * \
-                self.dv(vs, problem, average=average)
-        self._time += time_step
-        return (problem.left() + self._basis.lattice_values(2*vs - v0)).reshape(field.shape)
-
-    def get_boundary(self, field, problem):
-        if problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.ROBIN:
-            return problem.left() * np.ones(field.shape)
-        elif problem.left.kind() == Boundary.DIRICHLET and problem.right.kind() == Boundary.DIRICHLET:
-            return problem.left() + (problem.right() - problem.left())*(self._xs - problem.lattice.range[0])
         else:
             raise NotImplementedError("Boundary combination not yet implemented")

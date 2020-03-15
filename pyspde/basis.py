@@ -4,7 +4,7 @@ from functools import partial
 import numpy as np
 from scipy.integrate import quad
 
-from src.spde import Boundary
+from pyspde.boundary import Boundary
 
 
 class BasisSet(ABC):

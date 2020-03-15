@@ -184,14 +184,19 @@ class MollifiedWhiteNoise:
         self._rng = np.random.RandomState(seed=self._seed)
 
 
-class GaussianMollifiedNoise:
+class FourierMollifiedNoise:
 
-    def __init__(self, eps, fields=1, seed=None):
-        self._eps = eps
+    def __init__(self, mollifier, lattice, fields=1, seed=None):
+        #self._eps = eps
         # TODO: generalize to L != 1
+        self._mollifier = mollifier
         self._time = 0.0
         self._seed = seed
         self._rng = np.random.RandomState(seed=self._seed)
+        self._xs = lattice.points
+        xs = np.linspace(self._xs[0]*2, self._xs[-1]*2, len(self._xs)*2)
+        #u = np.exp(-(xs/(2*self._eps))**2)/(2*pi*self._eps)
+        self._u = self._mollifier(xs)
         self._value = None
 
     def __call__(self, t, dx, dimension, average=False):
@@ -207,29 +212,15 @@ class GaussianMollifiedNoise:
         factor = 2 if average else 1
 
         dt /= factor
-
-        n = dimension
-        ns = np.arange(0, n+1)
-        mus = np.arange(-n, n+1)
-        coeff = np.sqrt(2*n*dx*np.exp(2*self._eps**2/dx**2 * (np.cos(2*pi*mus/(2*n)) - 1))) * sqrt(2*pi)
+        uhat = np.fft.rfft(self._u)
+        sigma = sqrt(5*pi)/2 * np.abs(uhat)
 
         w = 0
         for _ in range(factor):
-            a = self._rng.normal(size=len(ns), scale=sqrt(0.5))
-            b = self._rng.normal(size=len(ns), scale=sqrt(0.5))
-            a[0] = 1
-            b[0] = 0
+            fourier_noise = self._rng.normal(scale=sigma/sqrt(dt))
+            w += np.fft.irfft(fourier_noise)
 
-            a_extend = np.concatenate((a[1:][::-1], a))
-            b_extend = np.concatenate((-b[1:][::-1], b))
-            rands = a_extend + 1j * b_extend
-
-            noise = np.fft.irfft(np.fft.ifftshift(coeff * rands), norm='ortho') * sqrt(2*n)
-            w += np.fft.fftshift(noise[:n]) * self._rng.normal(scale=sqrt(1/dt))
-
-        w /= factor
-
-        self._value = w / 16 * sqrt(2)
+        self._value = w[:dimension]/factor
         self._time = t
         return self._value.reshape((1, dimension))
 
@@ -242,3 +233,51 @@ class GaussianMollifiedNoise:
         self._seed = seed
         self._rng = np.random.RandomState(seed=self._seed)
 
+
+
+class SpatioTemporalColoredNoise:
+
+    def __init__(self, steps, dimension, space_mollifier, time_mollifier, seed=None):
+        self._steps = steps
+        self._dimension = dimension
+        self._space_mollifier = space_mollifier
+        self._time_mollifier = time_mollifier
+        self._noise_field = np.zeros((steps, dimension))
+        self._index = 0
+        self._time = 0
+        self._seed = seed
+        self._rng = np.random.RandomState(seed=self._seed)
+
+    def __call__(self, t, dx, dimension, average=False):
+        if self._index == 0:
+            self._index += 1
+            self._time = t
+            return self._noise_field[self._index-1]
+        elif self._index == 1:
+            dt = t - self._time
+            self._noise_field = self._rng.normal(scale=1/sqrt(dt*dx), size=self._noise_field.shape)
+            # mollify noise field in space
+            #self._noise_field = np.convolve(self._noise_field*dx, self._space_mollifier, mode="same", axis=1)
+            self._noise_field = np.apply_along_axis(lambda m: np.convolve(m, self._space_mollifier*dx, mode='same'), axis=1, arr=self._noise_field)
+            # mollify noise field in time
+            #self._noise_field = np.convolve(self._noise_field*dt, self._time_mollifier, mode="same", axis=0)
+            self._noise_field = np.apply_along_axis(lambda m: np.convolve(m, self._time_mollifier*dt, mode='same'), axis=0, arr=self._noise_field)
+
+            self._time = t
+            self._index += 1
+        return self._noise_field[self._index]
+
+        
+
+
+
+    @property
+    def seed(self):
+        return self._seed
+
+    @seed.setter
+    def seed(self, seed):
+        self._seed = seed
+        self._rng = np.random.RandomState(seed=self._seed)
+
+    
