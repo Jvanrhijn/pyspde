@@ -50,45 +50,6 @@ class MidpointIP(Integrator):
         return self._linsolve.propagate_step(2*a - a0, problem)
 
 
-class RK4IP(Integrator):
-
-    def __init__(self, linsolve):
-        super().__init__()
-        self._linsolve = linsolve
-
-    def step(self, field, problem, average=False):
-        dx = problem.lattice.increment
-        dimension = len(problem.lattice.points)
-        da = lambda a, t, w: problem.spde.drift(a, t) + problem.spde.volatility(a, t)*w
-
-        time_step = self._time_step
-        field_bar = self._linsolve.propagate_step(field, problem).reshape(field.shape)
-        w1 = problem.spde.noise(self._time, dx, dimension, average=average).reshape(field.shape)
-        d1 = 0.5*time_step*self._linsolve.propagate_step(da(field, self._time, w1), problem).reshape(field.shape)
-
-        w2 = problem.spde.noise(self._time + 0.5*time_step, dx, dimension, average=average).reshape(field.shape)
-        d2 = 0.5*time_step*da(field_bar + d1, self._time + 0.5*time_step, w2).reshape(field.shape)
-
-        d3 = 0.5*time_step*da(field_bar + d2, self._time + 0.5*time_step, w2)
-        w3 = problem.spde.noise(self._time + time_step, dx, dimension, average=average).reshape(field.shape)
-
-        d4 = 0.5*time_step*da(
-            self._linsolve.propagate_step(field_bar + 2 * d3, problem),
-            self._time + time_step,
-            w3
-        ).reshape(field.shape)
-        self._time += time_step
-
-        return self._linsolve.propagate_step(
-            field_bar + (d1 + 2*(d2 + d3))/3 + d4/3,
-            problem
-        ).reshape(field.shape)
-
-    def set_timestep(self, dt):
-        self._linsolve.set_timestep(dt/2)
-        self._time_step = dt
-
-
 class ThetaScheme(Integrator):
     
     def __init__(self, theta, lattice, basis, problem):

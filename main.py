@@ -17,15 +17,19 @@ if __name__ == "__main__":
     # so when (dt, dx) leads to a "good" solution, a refinement
     # dx -> a*dx requires dt -> a^2 * dt to obtain the same
     # solution again.
+    #steps = 1000
     steps = points**2
-    resolution = 10
+    resolution = 20
     print(steps)
 
     #equilibrate_over = (steps//resolution)//2 # take last 50% of time steps as equilibration
     equilibrate_over = 1
-    blocks = 32
-    samples = 128
-    processes = 4
+    #blocks = 32
+    #samples = 256
+    #processes = 4
+    blocks = 1
+    samples = 1
+    processes =1
 
     sigma = sqrt(0.5)
     k = -1
@@ -49,7 +53,8 @@ if __name__ == "__main__":
     lapl = Laplacian(lattice, boundaries)
 
     #u0 = np.ones(lattice.points.shape)
-    u0 = np.exp(k*(lattice.points - lattice.range[0]))
+    u0 = 1
+    #u0 = np.exp(k*(lattice.points - lattice.range[0]))
 
     # compute mollifier (normalized)
     eps = 2*dx
@@ -76,8 +81,8 @@ if __name__ == "__main__":
 
     print(c, cbar)
 
-    noise = FourierMollifiedNoise(m, lattice)
-    #noise = MollifiedWhiteNoise(1, moll)
+    #noise = FourierMollifiedNoise(m, lattice)
+    noise = MollifiedWhiteNoise(1, moll)
     #noise = WhiteNoise(1)
 
     def discrete_product(x, y):
@@ -105,10 +110,7 @@ if __name__ == "__main__":
 
     spde = SPDE(
         coeff,
-        #lambda u, t: 0,
         lambda u, t: f(u) * dc1(u)**2 + h(u),
-        lambda u, t: 0,
-        #lambda u, t: sqrt(2)*sigma,
         lambda u, t: g(u),
         noise
     )
@@ -194,10 +196,6 @@ if __name__ == "__main__":
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.legend()
-
-    #taus = vis.taxis
-    #fig, ax = vis.at_origin()
-    #ax.plot(taus, np.exp(k*taus), linestyle='-.')
 
     np.save("lattice_points", lattice.points)
     np.save('mean', mean)

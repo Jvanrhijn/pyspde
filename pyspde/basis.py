@@ -33,10 +33,6 @@ class BasisSet(ABC):
     def mass(self):
         pass
 
-    @abstractmethod
-    def mixed(self):
-        pass
-
 
 class FiniteElementBasis(BasisSet):
 
@@ -56,11 +52,6 @@ class FiniteElementBasis(BasisSet):
             + np.diag(np.ones(self._dimension-1)*1/6, k=1)\
             + np.diag(np.ones(self._dimension-1)*1/6, k=-1))*self._dx
         self._mass[-1, -1] = self._dx/3 if boundaries[1].kind() == Boundary.ROBIN else 2*self._dx/3
-        # compute mixed matrix
-        self._mixed = (np.diag(np.zeros(self._dimension)) \
-            + np.diag(np.ones(self._dimension-1)*-0.5, k=-1) \
-            + np.diag(np.ones(self._dimension-1)*0.5, k=1))
-        # TODO: fix boundaries of mixed matrix
 
     def member(self, index):
         return self._functions[index]
@@ -76,9 +67,6 @@ class FiniteElementBasis(BasisSet):
 
     def mass(self):
         return self._mass
-
-    def mixed(self):
-        return self._mixed
 
     def lattice_values(self, coefficients):
         # FEM transformation is identity
@@ -132,20 +120,25 @@ class SpectralBasis(BasisSet):
         #raise NotImplementedError("Spectral basis not functional yet")
         points = len(lattice.points)
         xs = lattice.points
+        self._dx = lattice.increment
+        self._origin = lattice.range[0]
         self._k = lambda n: (n-0.5)*np.pi
+
         self._functions = [partial(self._basis_sine, n) for n in range(1, points)] \
-            + [lambda x: x]
+            + [lambda x: (x - lattice.range[0])]
         self._derivatives = [partial(self._basis_sine_deriv, n) for n in range(1, points)] \
             + [lambda x: np.ones(x.shape) if isinstance(x, np.ndarray) else 1] 
+
         self._mass = np.zeros((points, points))
         self._stiffness = np.zeros((points, points))
         self._fem_to_sol = np.zeros((points, points))
+
         # matrices for converting between coefficients and solution
         for i in range(points):
             for j in range(points):
                 self._fem_to_sol[i, j] = self._functions[j](xs[i])
-                self._mass[i, j] = quad(lambda x: self._functions[j](x)*self._functions[i](x), 0, 1)[0]
-                self._stiffness[i, j] = quad(lambda x: self._derivatives[j](x)*self._derivatives[i](x), 0, 1)[0]
+                self._mass[i, j] = quad(lambda x: self._functions[j](x)*self._functions[i](x), *lattice.range)[0]
+                self._stiffness[i, j] = quad(lambda x: self._derivatives[j](x)*self._derivatives[i](x), *lattice.range)[0]
         self._sol_to_fem = np.linalg.inv(self._fem_to_sol)
 
     def __call__(self, x, derivative=False):
@@ -155,10 +148,10 @@ class SpectralBasis(BasisSet):
             return np.array([fun(x) for fun in self._derivatives])
 
     def coefficients(self, lattice_points):
-        return (self._sol_to_fem @ lattice_points.T).reshape(lattice_points.shape)
+        return (self._sol_to_fem @ lattice_points).reshape(lattice_points.shape)
 
     def lattice_values(self, coefficients):
-        return (self._fem_to_sol @ coefficients.T).reshape(coefficients.shape)
+        return (self._fem_to_sol @ coefficients).reshape(coefficients.shape)
 
     def member(self, index):
         return self._functions[index]
@@ -170,7 +163,11 @@ class SpectralBasis(BasisSet):
         return self._mass
 
     def _basis_sine(self, n, x):
+        x0 = self._origin
+        x = x - x0
         return np.sin(self._k(n)*x)
 
     def _basis_sine_deriv(self, n, x):
+        x0 = self._origin
+        x = x - x0
         return self._k(n)*np.cos(self._k(n)*x)
