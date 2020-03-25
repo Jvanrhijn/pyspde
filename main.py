@@ -17,9 +17,8 @@ if __name__ == "__main__":
     # so when (dt, dx) leads to a "good" solution, a refinement
     # dx -> a*dx requires dt -> a^2 * dt to obtain the same
     # solution again.
-    #steps = 1000
-    steps = points**2
-    resolution = 20
+    steps = 500
+    resolution = 5
     print(steps)
 
     #equilibrate_over = (steps//resolution)//2 # take last 50% of time steps as equilibration
@@ -27,11 +26,11 @@ if __name__ == "__main__":
     #blocks = 32
     #samples = 256
     #processes = 4
-    blocks = 1
-    samples = 1
-    processes =1
+    blocks = 32
+    samples = 8
+    processes = 4
 
-    sigma = sqrt(0.5)
+    sigma = 0.5
     k = -1
 
     boundaries = [
@@ -53,8 +52,8 @@ if __name__ == "__main__":
     lapl = Laplacian(lattice, boundaries)
 
     #u0 = np.ones(lattice.points.shape)
-    u0 = 1
-    #u0 = np.exp(k*(lattice.points - lattice.range[0]))
+    #u0 = 1
+    u0 = np.exp(k*(lattice.points - lattice.range[0]))
 
     # compute mollifier (normalized)
     eps = 2*dx
@@ -82,8 +81,8 @@ if __name__ == "__main__":
     print(c, cbar)
 
     #noise = FourierMollifiedNoise(m, lattice)
-    noise = MollifiedWhiteNoise(1, moll)
-    #noise = WhiteNoise(1)
+    #noise = MollifiedWhiteNoise(1, moll)
+    noise = WhiteNoise(1)
 
     def discrete_product(x, y):
         prod = np.zeros(x.shape)
@@ -190,12 +189,13 @@ if __name__ == "__main__":
     ax3.plot(ts, np.exp((2*k + sigma**2)*(ts - t0)), label="Geometric Brownian Motion")
     ax3.plot(ts, (boundaries[0]()**2 + sigma**2/(2*k)) * np.exp(2*k*(ts - t0)) - sigma**2/(2*k),
         label="Linear Diffusion")
-    ax3.plot(ts, 
+    ax3.plot(ts,
     (boundaries[0]()**2 + sigma**2/(2*k + sigma**2))*np.exp((2*k+sigma**2)*(ts - t0)) - sigma**2/(2*k + sigma**2),
         label="Multinoise")
     ax3.set_ylabel(r"$\langle\phi^2\rangle$")
     ax3.set_xlabel("t")
     ax3.legend()
+    ax3.plot(ts, mean[-1]**2)
 
     np.save("lattice_points", lattice.points)
     np.save('mean', mean)

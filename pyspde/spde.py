@@ -48,13 +48,11 @@ class TrajectorySolver:
 
     def solve(self, average=False):
         solution = self._solution[:, 0]
-        index = 0
-        for i in range(self._steps):
-            solution = self._stepper.step(
-                solution, self._problem,  average)
-            if i % self._resolution == 0:
-                self._solution[:, index] = solution
-                index += 1
+        for i in range(self._steps//self._resolution):
+            for _ in range(self._resolution):
+                solution = self._stepper.step(
+                    solution, self._problem,  average)
+                self._solution[:, i+1] = solution
 
     @property
     def solution(self):
